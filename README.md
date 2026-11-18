@@ -6,6 +6,7 @@
 
 **本地运行的浏览器资源嗅探与下载扩展 —— 视频 / 音频 / 图片 / 文本 / 整页快照**
 
+[![CI](https://github.com/FutureOrigin/ResourceHelper/actions/workflows/ci.yml/badge.svg)](https://github.com/FutureOrigin/ResourceHelper/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 ![Manifest V3](https://img.shields.io/badge/Manifest-V3-4285F4.svg)
 ![Chrome 114+](https://img.shields.io/badge/Chrome-%E2%89%A5%20114-34A853.svg)
