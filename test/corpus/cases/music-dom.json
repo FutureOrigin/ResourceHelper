@@ -1,0 +1,24 @@
+{
+  "name": "音乐站：<audio> 里的音频被采集，标题去掉站点后缀",
+  "url": "https://y.qq.com/n/ryqq/songDetail/000abc",
+  "title": "某首歌 - QQ音乐-千万正版音乐海量无损曲库新歌热歌天天畅听的高品质音乐平台！",
+  "domMedia": [
+    {
+      "src": "https://isure.stream.qqmusic.qq.com/C400000abc.m4a?guid=1",
+      "kind": "audio",
+      "ext": "m4a",
+      "width": 0,
+      "height": 0,
+      "duration": 245
+    }
+  ],
+  "expect": {
+    "nodes": 1,
+    "variants": 1,
+    "title": "某首歌",
+    "audioLabels": [
+      "M4A"
+    ],
+    "completeness": "complete"
+  }
+}

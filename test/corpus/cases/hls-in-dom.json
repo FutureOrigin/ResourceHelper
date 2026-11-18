@@ -1,0 +1,24 @@
+{
+  "name": "DOM 里的 HLS 主播放列表：识别为 m3u8 并可走完整流下载",
+  "url": "https://live.example.com/room/12345",
+  "title": "某直播间 - 腾讯视频",
+  "domMedia": [
+    {
+      "src": "https://cdn.example.com/live/stream.m3u8?token=xyz",
+      "kind": "video",
+      "ext": "m3u8",
+      "width": 1280,
+      "height": 720,
+      "duration": null
+    }
+  ],
+  "expect": {
+    "nodes": 1,
+    "variants": 1,
+    "title": "某直播间",
+    "qualityLabels": [
+      "720P"
+    ],
+    "completeness": "video-only"
+  }
+}

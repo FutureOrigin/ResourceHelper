@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全漏洞（私密报告）
+    url: https://github.com/FutureOrigin/ResourceHelper/security/advisories/new
+    about: 请不要把安全问题发在公开 issue 里
+  - name: 贡献指南
+    url: https://github.com/FutureOrigin/ResourceHelper/blob/main/docs/CONTRIBUTING.md
+    about: 环境、分支、提交规范、测试与文档要求
+  - name: 架构与路线图
+    url: https://github.com/FutureOrigin/ResourceHelper/tree/main/docs
+    about: 先读文档，很多问题在那里有答案

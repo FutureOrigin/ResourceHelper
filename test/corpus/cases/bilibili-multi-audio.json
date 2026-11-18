@@ -1,0 +1,21 @@
+{
+  "name": "B站多音轨：杜比音轨与普通音轨同时存在时按码率配对",
+  "adapter": "bilibili-video",
+  "fixture": "bilibili-multi-audio.json",
+  "url": "https://www.bilibili.com/video/BV1multiAudio01",
+  "title": "多音轨样例_哔哩哔哩_bilibili",
+  "expect": {
+    "nodes": 1,
+    "variants": 4,
+    "title": "多音轨样例",
+    "qualityLabels": [
+      "1080P 高清",
+      "720P 高清"
+    ],
+    "audioLabels": [
+      "杜比全景声",
+      "192K 高保真"
+    ],
+    "completeness": "complete"
+  }
+}

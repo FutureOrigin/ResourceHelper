@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>ResourceHelper 设置</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <main class="page">
+    <header class="page-header">
+      <h1>ResourceHelper 设置</h1>
+      <p class="subtitle">改动会同步到你的 Chrome 账号（chrome.storage.sync）。</p>
+    </header>
+
+    <section class="card">
+      <h2>嗅探</h2>
+
+      <label class="row">
+        <input type="checkbox" id="deep-capture" />
+        <span class="row-main">
+          <span class="row-title">深度模式（页面钩子）</span>
+          <span class="row-desc">注入主世界脚本，读取页面 fetch/XHR 的媒体地址与 MSE 编码信息。
+            默认关闭时只依赖网络层与页面数据。</span>
+        </span>
+      </label>
+
+      <label class="row">
+        <input type="checkbox" id="show-hook-hint" />
+        <span class="row-main">
+          <span class="row-title">显示 MSE 提示</span>
+          <span class="row-desc">页面使用 MSE/blob 播放时，在侧边栏说明为什么抓不到完整文件。</span>
+        </span>
+      </label>
+    </section>
+
+    <section class="card">
+      <h2>数量与质量</h2>
+      <label class="field">
+        <span class="field-title">图片最小边长（px）</span>
+        <input type="number" id="image-min-size" min="0" max="2000" step="10" />
+        <span class="field-desc">小于该尺寸的图片视为图标丢弃；0 表示不过滤。</span>
+      </label>
+
+      <label class="field">
+        <span class="field-title">单页最多媒体条数</span>
+        <input type="number" id="max-media-per-tab" min="10" max="2000" step="10" />
+        <span class="field-desc">图库类页面资源很多时，用于保护侧边栏的渲染性能。</span>
+      </label>
+
+      <label class="field">
+        <span class="field-title">文件名模板</span>
+        <input type="text" id="filename-template" spellcheck="false" />
+        <span class="field-desc">可用占位符：{title} {quality} {ext} {site} {date}</span>
+      </label>
+    </section>
+
+    <section class="card">
+      <h2>整页快照</h2>
+
+      <label class="row">
+        <input type="checkbox" id="archive-remove-scripts" />
+        <span class="row-main">
+          <span class="row-title">保存时移除脚本</span>
+          <span class="row-desc">去掉 &lt;script&gt; 与内联 on* 事件属性：离线打开时不再执行页面代码。</span>
+        </span>
+      </label>
+
+      <label class="row">
+        <input type="checkbox" id="archive-inline-images" />
+        <span class="row-main">
+          <span class="row-title">内联图片、字体与背景图</span>
+          <span class="row-desc">关掉后只保存 HTML 与样式文本，图片仍指向在线地址（能联网才完整）。</span>
+        </span>
+      </label>
+
+      <label class="row">
+        <input type="checkbox" id="archive-embed-frames" />
+        <span class="row-main">
+          <span class="row-title">嵌入 iframe 内容</span>
+          <span class="row-desc">子框架由各自的内容脚本采集后写进 srcdoc；抓不到时保留原地址，不会串到别的框架里。</span>
+        </span>
+      </label>
+
+      <label class="row">
+        <input type="checkbox" id="archive-referer-retry" />
+        <span class="row-main">
+          <span class="row-title">防盗链时带页面 Referer 重试</span>
+          <span class="row-desc">抓取被 403 拒绝时，临时给"扩展自己发出的请求"补上页面 Referer 再试一次（用完立刻删除规则）。</span>
+        </span>
+      </label>
+
+      <label class="field">
+        <span class="field-title">单个资源上限（MiB）</span>
+        <input type="number" id="archive-max-resource-mb" min="1" max="64" step="1" />
+        <span class="field-desc">超过就跳过这张图/这个字体，保留在线地址。</span>
+      </label>
+
+      <label class="field">
+        <span class="field-title">整份快照上限（MiB）</span>
+        <input type="number" id="archive-max-total-mb" min="5" max="512" step="5" />
+        <span class="field-desc">内联字节到上限后停止，其余资源保留在线地址 —— 不会因为一张巨图整个失败。</span>
+      </label>
+    </section>
+
+    <div class="actions">
+      <button id="save" class="primary">保存</button>
+      <button id="reset" class="ghost">恢复默认</button>
+      <span id="status" class="status" role="status"></span>
+    </div>
+  </main>
+  <script src="options.js" type="module"></script>
+</body>
+</html>

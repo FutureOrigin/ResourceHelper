@@ -1,0 +1,90 @@
+name: 缺陷报告
+description: 扩展行为不对、下载结果异常、页面不兼容
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请先确认：
+        1. 已读 [README](https://github.com/FutureOrigin/ResourceHelper#readme) 的「明确不做」一节；
+        2. 问题不是 DRM 内容（本扩展不下载 DRM，这是预期行为）；
+        3. 已尝试 `npm run build` 后重新加载扩展。
+
+        **安全问题请走 [SECURITY](https://github.com/FutureOrigin/ResourceHelper/blob/main/docs/SECURITY.md)，不要发在这里。**
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 现象
+      description: 实际发生了什么？侧边栏显示了什么？下载结果出了什么问题？
+      placeholder: 例如：点下载 1080P 后得到一个没有声音的 mp4；侧边栏没有报错。
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 你认为正确的结果是什么？
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 越具体越好；可以脱敏 URL（保留域名与路径形态即可）。
+      placeholder: |
+        1. 打开 https://example.com/video/123
+        2. 点击工具栏图标打开侧边栏
+        3. 在「视频」页签选择 1080P -> 下载
+        4. 得到 xxx.mp4，播放无声
+    validations:
+      required: true
+
+  - type: input
+    id: page-url
+    attributes:
+      label: 页面地址（可脱敏）
+      placeholder: https://example.com/video/123
+
+  - type: input
+    id: version
+    attributes:
+      label: 扩展版本
+      description: 来自 manifest 或扩展详情页
+      placeholder: 1.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: 浏览器与版本
+      placeholder: Chrome 131.0.6778.86 / Edge 131.0.2903.70
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: 操作系统
+      placeholder: Windows 11 24H2 / macOS 15.1 / Ubuntu 24.04
+
+  - type: textarea
+    id: console
+    attributes:
+      label: 控制台 / Service Worker 报错（可选）
+      description: 扩展页面（chrome://extensions → 检查视图）里的错误信息
+      render: shell
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认
+      options:
+        - label: 我确认这不是 DRM 内容，也没有要求绕过任何付费/鉴权限制
+          required: true
+        - label: 我已搜索过现有 issue，没有找到重复
+          required: true

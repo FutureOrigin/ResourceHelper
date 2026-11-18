@@ -1,0 +1,20 @@
+{
+  "name": "YouTube：视频轨与两条音轨分流后配对",
+  "adapter": "youtube-watch",
+  "fixture": "youtube-player.json",
+  "url": "https://www.youtube.com/watch?v=abc123XYZ",
+  "title": "YT 测试视频 - YouTube",
+  "expect": {
+    "nodes": 1,
+    "variants": 3,
+    "title": "YT 测试视频",
+    "qualityLabels": [
+      "1080P 高清视频轨"
+    ],
+    "audioLabels": [
+      "160K Opus 极高质量音频",
+      "128K AAC 高保真音频"
+    ],
+    "completeness": "complete"
+  }
+}

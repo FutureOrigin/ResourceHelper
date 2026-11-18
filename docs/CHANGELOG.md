@@ -1,0 +1,54 @@
+# 变更记录
+
+本文件记录所有值得注意的变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
+版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
+
+## [未发布]
+
+- 整理开源化：文档迁入 `docs/`、新增 `AGENTS.md`、补充贡献/安全/第三方许可证文档。
+
+## [1.1.0] - 2026-11-18
+
+首个公开发布版本。
+
+### 新增
+
+- **网络层发现**：旁路观察 `webRequest`（只读），按 URL、响应类型与站点关键词识别媒体请求。
+- **声明式站点适配器**：JSONPath 子集引擎；内置 B 站、YouTube 与通用 DOM 兜底；
+  站点知识全部在 `src/sites/*.json`，内容脚本只负责采集。
+- **资源身份与资源图**：规范化身份键、逻辑媒体与变体分层、镜像/分片挂父节点（I1/I2/I3）。
+- **下载引擎**：HLS（多变体 / 独立音轨组 / 重试）、DASH（SegmentBase / SegmentTemplate）、
+  采样级 remux（整文件与 fMP4 分片，重写 `stco` 偏移）、音画配对、合流前体积预算护栏。
+- **直播录制**：HLS 滚动播放列表按序列号增量采集、边播边录、滚动落盘、结束自动收尾。
+- **整页快照**：DOM 序列化 + 占位符协议、CSS 闭包（`url()` / `@import` / 字体）、
+  跨域资源带凭证抓取（403 时临时补 Referer 重试）、iframe 逐层 `srcdoc` 装配、预算与降级。
+- **文本能力**：解除复制限制、正文提取为 Markdown、字体反爬（私用区码位）字形还原。
+- **图片能力**：DOM + Shadow DOM + `srcset` + 背景图 + 动态网络图扫描，批量下载。
+- **下载历史与设置**：四类下载路径统一留痕、状态随 `downloads` 事件更新；
+  设置同步到 Chrome 账号（深度模式 / 提示开关 / 图片阈值 / 单页条数 / 文件名模板）。
+- **下载引擎搬离侧边栏**：构建在 offscreen 文档执行，关闭侧边栏不中断；不支持时自动回退。
+- **质量门禁**：410 个单元测试、站点语料 KPI 门禁、效率基准、缺陷探针。
+
+### 变更
+
+- 主入口改为侧边栏（快捷键 <kbd>Alt</kbd>+<kbd>Up</kbd>），不再使用弹窗。
+- 主世界钩子改为只读 `PerformanceObserver`，不再包装页面的 `fetch` / `XMLHttpRequest`。
+- 资源图持久化到 `storage.session`，Service Worker 回收后不再失忆。
+- 构建改为 `src/` → `out/ResourceHelper/` 的零依赖脚本，含语法与资产门禁。
+
+### 修复
+
+- 音画分离源下载出无声视频（音轨配对缺失）。
+- "提取 MP3"实际是把视频轨改后缀（现有决策层明确拒绝而不是给坏文件）。
+- 合流后的 MP4 采样偏移错误导致文件损坏。
+- 32 位哈希身份键在大规模 URL 下碰撞、后到者覆盖先到者。
+- 页面可控字符串拼接 `innerHTML` 的注入面。
+- 抽屉式轮询造成的性能问题（改为事件驱动、样式表解析）。
+
+### 移除
+
+- 所有第三方专有代码、逆向产物与旧 UI 包；不再包含任何 wasm 转码器，
+  因此也不再宣称"无损提取 MP3"。
+
+[未发布]: https://github.com/FutureOrigin/ResourceHelper/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/FutureOrigin/ResourceHelper/releases/tag/v1.1.0

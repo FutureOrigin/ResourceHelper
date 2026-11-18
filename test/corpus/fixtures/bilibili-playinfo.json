@@ -1,0 +1,48 @@
+{
+  "code": 0,
+  "data": {
+    "bvid": "BV1RqWe6EE6Q",
+    "is_drm": 0,
+    "videoData": {
+      "title": "某测试视频"
+    },
+    "dash": {
+      "duration": 300000,
+      "video": [
+        {
+          "id": 80,
+          "baseUrl": "https://upos-sz-mirrorcos.example/v80.m4s",
+          "bandwidth": 2400000,
+          "width": 1920,
+          "height": 1080,
+          "codecs": "avc1.640032"
+        },
+        {
+          "id": 64,
+          "backupUrl": [
+            "https://backup.example/v64.m4s"
+          ],
+          "bandwidth": 1200000,
+          "width": 1280,
+          "height": 720,
+          "codecs": "avc1.64001f"
+        },
+        {
+          "id": 32,
+          "baseUrl": "https://upos-sz-mirrorcos.example/v32.m4s",
+          "bandwidth": 600000,
+          "width": 854,
+          "height": 480,
+          "codecs": "avc1.4d401f"
+        }
+      ],
+      "audio": [
+        {
+          "id": 30280,
+          "baseUrl": "https://upos-sz-mirrorcos.example/a192.m4s",
+          "bandwidth": 192000
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "name": "resource-helper",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ResourceHelper（资源助手）— 完全本地运行的浏览器资源嗅探与下载扩展：视频 / 音频 / 图片 / 文本 / 整页快照",
+  "keywords": [
+    "browser-extension",
+    "chrome-extension",
+    "manifest-v3",
+    "video-downloader",
+    "media-sniffer",
+    "hls",
+    "dash",
+    "single-file-archive",
+    "privacy-first"
+  ],
+  "license": "Apache-2.0",
+  "author": "ResourceHelper contributors",
+  "homepage": "https://github.com/FutureOrigin/ResourceHelper#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FutureOrigin/ResourceHelper.git"
+  },
+  "bugs": {
+    "url": "https://github.com/FutureOrigin/ResourceHelper/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "corpus": "node test/corpus/run.mjs",
+    "bench": "node test/bench/run.mjs",
+    "diagnose": "node tools/diagnose.mjs",
+    "check": "npm run build && npm test && npm run corpus && npm run bench && npm run diagnose"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "同一地址同时来自页面数据与 DOM：合并成一条变体",
+  "adapter": "bilibili-video",
+  "fixture": "bilibili-multi-audio.json",
+  "url": "https://www.bilibili.com/video/BV1multiAudio01",
+  "title": "多音轨样例_哔哩哔哩_bilibili",
+  "domMedia": [
+    {
+      "src": "https://upos.example/v80.m4s",
+      "kind": "video",
+      "ext": "m4s",
+      "width": 1920,
+      "height": 1080,
+      "duration": 600
+    }
+  ],
+  "expect": {
+    "nodes": 1,
+    "variants": 4,
+    "title": "多音轨样例",
+    "qualityLabels": [
+      "1080P 高清",
+      "720P 高清"
+    ],
+    "audioLabels": [
+      "杜比全景声",
+      "192K 高保真"
+    ],
+    "completeness": "complete"
+  }
+}

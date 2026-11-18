@@ -1,0 +1,40 @@
+{
+  "code": 0,
+  "data": {
+    "bvid": "BV1multiAudio01",
+    "is_drm": 0,
+    "dash": {
+      "duration": 600000,
+      "video": [
+        {
+          "id": 80,
+          "baseUrl": "https://upos.example/v80.m4s",
+          "bandwidth": 2400000,
+          "width": 1920,
+          "height": 1080,
+          "codecs": "avc1.640032"
+        },
+        {
+          "id": 64,
+          "baseUrl": "https://upos.example/v64.m4s",
+          "bandwidth": 1200000,
+          "width": 1280,
+          "height": 720,
+          "codecs": "avc1.64001f"
+        }
+      ],
+      "audio": [
+        {
+          "id": 30280,
+          "baseUrl": "https://upos.example/a192.m4s",
+          "bandwidth": 192000
+        },
+        {
+          "id": 30250,
+          "baseUrl": "https://upos.example/dolby.m4s",
+          "bandwidth": 448000
+        }
+      ]
+    }
+  }
+}

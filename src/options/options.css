@@ -1,0 +1,82 @@
+:root {
+  color-scheme: dark;
+  --bg: #0f172a;
+  --card: #1e293b;
+  --border: #334155;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --accent: #38bdf8;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.6 system-ui, -apple-system, "Segoe UI", "PingFang SC", sans-serif;
+}
+
+.page {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 40px 24px 64px;
+}
+
+.page-header h1 { margin: 0 0 4px; font-size: 20px; }
+.subtitle { margin: 0 0 24px; color: var(--muted); font-size: 13px; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 16px 16px;
+  margin-bottom: 16px;
+}
+
+.card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 12px 0; }
+
+.row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.row:first-of-type { border-top: none; }
+.row input[type="checkbox"] { margin-top: 3px; width: 16px; height: 16px; accent-color: var(--accent); }
+.row-main { display: flex; flex-direction: column; gap: 2px; }
+.row-title { font-weight: 600; }
+.row-desc { color: var(--muted); font-size: 12.5px; }
+
+.field { display: block; padding: 10px 0; border-top: 1px solid rgba(148, 163, 184, 0.14); }
+.field:first-of-type { border-top: none; }
+.field-title { display: block; font-weight: 600; margin-bottom: 6px; }
+.field input {
+  width: 100%;
+  padding: 8px 10px;
+  background: #0b1220;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+}
+.field input:focus { outline: 2px solid rgba(56, 189, 248, 0.5); outline-offset: 1px; }
+.field-desc { display: block; margin-top: 4px; color: var(--muted); font-size: 12.5px; }
+
+.actions { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+button {
+  padding: 8px 18px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: #0b1220; font-weight: 600; }
+button:hover { filter: brightness(1.1); }
+.status { color: var(--muted); font-size: 13px; }
+.status.ok { color: #34d399; }
+.status.error { color: #f87171; }

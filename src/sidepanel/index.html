@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ResourceHelper · 资源助手</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand-wrap">
+      <img class="app-logo" src="../bitmaps/logo-128-color.png" alt="logo" />
+      <span class="app-title">ResourceHelper</span>
+    </div>
+    <div class="header-actions">
+      <div class="domain-chip" id="current-domain-wrap">
+        <img class="domain-icon hidden" id="current-fav-icon" alt="" />
+        <span id="current-domain-chip">检测中...</span>
+      </div>
+      <button class="icon-btn" id="open-sidepanel-btn" title="在独立窗口中打开">
+        <svg class="btn-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+          <line x1="15" y1="3" x2="15" y2="21"></line>
+        </svg>
+      </button>
+      <button class="icon-btn" id="global-refresh-btn" title="重新嗅探当前页">
+        <svg class="btn-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M23 4v6h-6"></path>
+          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <nav class="nav-tabs">
+    <button class="nav-tab-btn active" data-tab="video">
+      <span class="tab-icon">🎬</span>
+      <span>视频</span>
+      <span class="badge" id="badge-video"></span>
+    </button>
+    <button class="nav-tab-btn" data-tab="audio">
+      <span class="tab-icon">🎵</span>
+      <span>音频</span>
+      <span class="badge" id="badge-audio"></span>
+    </button>
+    <button class="nav-tab-btn" data-tab="image">
+      <span class="tab-icon">🖼️</span>
+      <span>图片</span>
+      <span class="badge" id="badge-image"></span>
+    </button>
+    <button class="nav-tab-btn" data-tab="text">
+      <span class="tab-icon">📝</span>
+      <span>文本</span>
+      <span class="badge" id="badge-text"></span>
+    </button>
+    <button class="nav-tab-btn" data-tab="page">
+      <span class="tab-icon">🗄️</span>
+      <span>快照</span>
+      <span class="badge" id="badge-page"></span>
+    </button>
+    <button class="nav-tab-btn" data-tab="history">
+      <span class="tab-icon">⬇️</span>
+      <span>下载</span>
+      <span class="badge" id="badge-history"></span>
+    </button>
+  </nav>
+
+  <main class="app-body">
+    <div class="tab-pane active" id="pane-video"></div>
+    <div class="tab-pane" id="pane-audio"></div>
+    <div class="tab-pane" id="pane-image"></div>
+    <div class="tab-pane" id="pane-text"></div>
+    <div class="tab-pane" id="pane-page"></div>
+    <div class="tab-pane" id="pane-history"></div>
+  </main>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>

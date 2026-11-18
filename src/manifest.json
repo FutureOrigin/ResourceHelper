@@ -1,0 +1,120 @@
+{
+   "action": {
+      "default_icon": {
+         "16": "bitmaps/logo-16.png",
+         "32": "bitmaps/logo-32.png",
+         "48": "bitmaps/logo-48.png",
+         "128": "bitmaps/logo-128-color.png"
+      },
+      "default_title": "ResourceHelper · 资源助手（Alt+Up）"
+   },
+   "author": "ResourceHelper contributors",
+   "background": {
+      "service_worker": "service/background.js",
+      "type": "module"
+   },
+   "commands": {
+      "_execute_action": {
+         "suggested_key": {
+            "default": "Alt+Up",
+            "mac": "Ctrl+Shift+Up"
+         }
+      },
+      "open-panel": {
+         "description": "在当前标签页打开资源助手侧边栏",
+         "suggested_key": {
+            "default": "Alt+Down",
+            "mac": "Ctrl+Shift+Down"
+         }
+      }
+   },
+   "content_scripts": [
+      {
+         "all_frames": true,
+         "js": [
+            "content/hook_bridge.js"
+         ],
+         "matches": [
+            "<all_urls>"
+         ],
+         "run_at": "document_start"
+      },
+      {
+         "all_frames": true,
+         "js": [
+            "content/inpage_overlay.js",
+            "content/extractor.js",
+            "content/text_unlocker.js"
+         ],
+         "matches": [
+            "<all_urls>"
+         ],
+         "run_at": "document_idle"
+      },
+      {
+         "all_frames": true,
+         "js": [
+            "content/page_archiver.js"
+         ],
+         "matches": [
+            "<all_urls>"
+         ],
+         "run_at": "document_idle"
+      },
+      {
+         "all_frames": true,
+         "js": [
+            "content/page_hooks.js"
+         ],
+         "matches": [
+            "<all_urls>"
+         ],
+         "run_at": "document_start",
+         "world": "MAIN"
+      }
+   ],
+   "content_security_policy": {
+      "extension_pages": "script-src 'self'"
+   },
+   "default_locale": "zh_CN",
+   "description": "__MSG_appDesc__",
+   "host_permissions": [
+      "<all_urls>"
+   ],
+   "icons": {
+      "16": "bitmaps/logo-16.png",
+      "32": "bitmaps/logo-32.png",
+      "48": "bitmaps/logo-48.png",
+      "128": "bitmaps/logo-128-color.png"
+   },
+   "manifest_version": 3,
+   "minimum_chrome_version": "114",
+   "options_ui": {
+      "open_in_tab": true,
+      "page": "options/index.html"
+   },
+   "name": "__MSG_appName__",
+   "permissions": [
+      "declarativeNetRequest",
+      "downloads",
+      "offscreen",
+      "scripting",
+      "sidePanel",
+      "storage",
+      "tabs",
+      "webNavigation",
+      "webRequest"
+   ],
+   "side_panel": {
+      "default_icon": {
+         "16": "bitmaps/logo-16.png",
+         "32": "bitmaps/logo-32.png",
+         "48": "bitmaps/logo-48.png",
+         "128": "bitmaps/logo-128-color.png"
+      },
+      "default_path": "sidepanel/index.html",
+      "default_title": "ResourceHelper · 资源助手"
+   },
+   "version": "1.1.0",
+   "short_name": "__MSG_appShortName__"
+}

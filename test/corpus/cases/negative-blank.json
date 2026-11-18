@@ -1,0 +1,11 @@
+{
+  "name": "负例：页面里没有任何媒体，不应凭空造卡",
+  "url": "https://www.example.com/article/123.html",
+  "title": "某篇文章 - 示例站点",
+  "domMedia": [],
+  "expect": {
+    "nodes": 0,
+    "playable": false,
+    "completeness": null
+  }
+}

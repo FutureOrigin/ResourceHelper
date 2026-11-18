@@ -1,0 +1,24 @@
+{
+  "name": "DASH 清单出现在 DOM 里：识别为 mpd 而不是当成普通视频",
+  "url": "https://www.example-video.com/play/abc",
+  "title": "某影片 - 腾讯视频",
+  "domMedia": [
+    {
+      "src": "https://cdn.example-video.com/stream/manifest.mpd?token=abc",
+      "kind": "video",
+      "ext": "mpd",
+      "width": 1920,
+      "height": 1080,
+      "duration": 5400
+    }
+  ],
+  "expect": {
+    "nodes": 1,
+    "variants": 1,
+    "title": "某影片",
+    "qualityLabels": [
+      "1080P"
+    ],
+    "completeness": "video-only"
+  }
+}

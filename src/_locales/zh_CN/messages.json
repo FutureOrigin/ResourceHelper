@@ -1,0 +1,44 @@
+{
+  "appName": {
+    "message": "ResourceHelper · 资源助手"
+  },
+  "appShortName": {
+    "message": "ResourceHelper"
+  },
+  "appDesc": {
+    "message": "ResourceHelper (资源助手)：嗅探下载网页视频/音频/图片、解除文本防复制，并可把整页存成单个离线 HTML 文件。"
+  },
+  "tabVideo": {
+    "message": "视频"
+  },
+  "tabAudio": {
+    "message": "音频"
+  },
+  "tabImage": {
+    "message": "图片"
+  },
+  "tabText": {
+    "message": "文本"
+  },
+  "tabPage": {
+    "message": "快照"
+  },
+  "btnDownload": {
+    "message": "下载"
+  },
+  "btnDownloading": {
+    "message": "下载中..."
+  },
+  "btnDownloadComplete": {
+    "message": "下载完成"
+  },
+  "btnCopyLink": {
+    "message": "复制链接"
+  },
+  "statusSuccess": {
+    "message": "操作成功"
+  },
+  "statusFailed": {
+    "message": "操作失败"
+  }
+}

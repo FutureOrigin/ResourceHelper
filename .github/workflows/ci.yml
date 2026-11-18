@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: build · test · corpus · bench
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 构建（语法门禁 + manifest 资产门禁）
+        run: npm run build
+
+      - name: 单元测试
+        run: npm test
+
+      - name: 站点语料回归与 KPI 门禁
+        run: npm run corpus
+
+      - name: 效率基准
+        run: npm run bench
+
+      - name: 缺陷探针
+        run: npm run diagnose
+
+      - name: 上传构建产物（可直接加载试用）
+        uses: actions/upload-artifact@v4
+        with:
+          name: ResourceHelper-unpacked
+          path: out/ResourceHelper
+          if-no-files-found: error
+          retention-days: 7

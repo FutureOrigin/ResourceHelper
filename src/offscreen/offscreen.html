@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>ResourceHelper offscreen</title>
+</head>
+<body>
+  <!--
+    这个文档没有界面：它的唯一职责是给"构建"提供 DOM 能力（Blob / URL.createObjectURL），
+    让耗时的拉流与拼装不再依赖侧边栏是否开着。
+    落盘仍然回到有 chrome.downloads 的上下文（后台）。
+  -->
+  <script src="offscreen.js" type="module"></script>
+</body>
+</html>

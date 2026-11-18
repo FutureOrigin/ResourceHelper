@@ -1,0 +1,52 @@
+name: 功能建议
+description: 新能力、新站点、体验改进
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提之前请看一眼 [路线图](https://github.com/FutureOrigin/ResourceHelper/blob/main/docs/ROADMAP.md)
+        与 [AGENTS.md](https://github.com/FutureOrigin/ResourceHelper/blob/main/AGENTS.md) 的产品边界。
+        DRM 绕过、鉴权绕过、反爬对抗不在范围内。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你想解决什么问题
+      description: 描述场景，而不是先描述方案
+      placeholder: 例如：我在某个站点上想批量保存一组图片，但现在只能逐张点。
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 你建议怎么做
+      description: 如果有实现思路（例如"加一个站点适配器 JSON"），请写在这里
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 影响范围
+      multiple: true
+      options:
+        - 站点适配器（新站点 / 站点改版）
+        - 视频下载（HLS / DASH / 合流）
+        - 音频
+        - 图片
+        - 文本 / 字体还原
+        - 整页快照
+        - 下载历史 / 设置 / UI
+        - 文档 / 构建 / 测试
+        - 其他
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认
+      options:
+        - label: 这个建议不涉及 DRM 绕过、付费/鉴权绕过或反爬对抗
+          required: true

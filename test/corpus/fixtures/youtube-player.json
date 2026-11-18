@@ -1,0 +1,31 @@
+{
+  "videoDetails": {
+    "videoId": "abc123XYZ",
+    "title": "YT 测试视频",
+    "lengthSeconds": "212"
+  },
+  "streamingData": {
+    "adaptiveFormats": [
+      {
+        "itag": 137,
+        "url": "https://rr1.googlevideo.com/videoplayback?itag=137&clen=80000000",
+        "mimeType": "video/mp4; codecs=\"avc1.640028\"",
+        "width": 1920,
+        "height": 1080,
+        "bitrate": 2400000
+      },
+      {
+        "itag": 140,
+        "url": "https://rr1.googlevideo.com/videoplayback?itag=140&clen=3200000",
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 128000
+      },
+      {
+        "itag": 251,
+        "url": "https://rr1.googlevideo.com/videoplayback?itag=251&clen=4000000",
+        "mimeType": "audio/webm; codecs=\"opus\"",
+        "bitrate": 160000
+      }
+    ]
+  }
+}

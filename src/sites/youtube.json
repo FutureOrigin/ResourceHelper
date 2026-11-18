@@ -1,0 +1,68 @@
+{
+  "id": "youtube-watch",
+  "version": 1,
+  "match": [
+    "*.youtube.com/watch*",
+    "*.youtube.com/shorts/*",
+    "*.youtube.com/live/*"
+  ],
+  "title": [
+    "$.videoDetails.title",
+    "$doc.title"
+  ],
+  "media": {
+    "id": "$.videoDetails.videoId",
+    "video": {
+      "each": "$.streamingData.adaptiveFormats[*]",
+      "filter": "$.mimeType contains 'video'",
+      "url": "$.url",
+      "id": "$.itag",
+      "quality": "$.itag",
+      "width": "$.width",
+      "height": "$.height",
+      "bitrate": "$.bitrate",
+      "codec": "$.mimeType",
+      "videoOnly": true,
+      "labels": {
+        "18": "360P (音视频合流)",
+        "22": "720P 原画 (音视频合流)",
+        "134": "360P 视频轨",
+        "135": "480P 视频轨",
+        "136": "720P 视频轨",
+        "137": "1080P 高清视频轨",
+        "247": "720P WebM 视频轨",
+        "248": "1080P WebM 视频轨",
+        "298": "720P60 视频轨",
+        "299": "1080P60 视频轨"
+      }
+    },
+    "audio": {
+      "each": "$.streamingData.adaptiveFormats[*]",
+      "filter": "$.mimeType contains 'audio'",
+      "url": "$.url",
+      "id": "$.itag",
+      "quality": "$.itag",
+      "bitrate": "$.bitrate",
+      "lang": "$.audioTrack.displayName",
+      "labels": {
+        "140": "128K AAC 高保真音频",
+        "249": "50K Opus 音频",
+        "250": "70K Opus 音频",
+        "251": "160K Opus 极高质量音频"
+      }
+    }
+  },
+  "headers": {
+    "Referer": "https://www.youtube.com/"
+  },
+  "referer": "https://www.youtube.com/",
+  "priority": 10,
+  "titleCleanup": [
+    "\\s*[-_—|]\\s*哔哩哔哩.*$",
+    "\\s*[-_—|]\\s*bilibili.*$",
+    "\\s*[-_—|]\\s*YouTube.*$",
+    "\\s*[-_—|]\\s*腾讯视频.*$",
+    "\\s*[-_—|]\\s*QQ音乐.*$",
+    "\\s*[-_—|]\\s*网易云音乐.*$"
+  ]
+}

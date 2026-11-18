@@ -1,0 +1,26 @@
+# ---- 构建产物（npm run build 由 src/ 完整重建）----
+out/
+
+# ---- 依赖（当前零运行时依赖，保留以备后续引入）----
+node_modules/
+
+# ---- 本地私有资料：第三方参考包、逆向笔记、抓包语料等，永不入库 ----
+work/
+private/
+*.local.md
+
+# ---- 打包 / 签名残渣 ----
+*.crx
+*.pem
+*.zip
+*.har
+
+# ---- 测试与覆盖率输出 ----
+coverage/
+*.log
+
+# ---- 编辑器 / 系统 ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

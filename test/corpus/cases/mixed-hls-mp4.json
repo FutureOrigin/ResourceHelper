@@ -1,0 +1,26 @@
+{
+  "name": "同一页同时有 HLS 与 MP4：两条资源各成一张卡，不互相污染",
+  "url": "https://media.example.com/watch/99",
+  "title": "某节目 - 示例影视",
+  "domMedia": [
+    {
+      "src": "https://cdn.example.com/hls/master.m3u8",
+      "kind": "video",
+      "ext": "m3u8",
+      "width": 1920,
+      "height": 1080,
+      "duration": 3600
+    },
+    {
+      "src": "https://cdn.example.com/file/teaser.mp4",
+      "kind": "video",
+      "ext": "mp4",
+      "width": 640,
+      "height": 360,
+      "duration": 30
+    }
+  ],
+  "expect": {
+    "nodes": 2
+  }
+}

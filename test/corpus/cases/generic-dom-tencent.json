@@ -1,0 +1,32 @@
+{
+  "name": "通用适配器：DOM 里的 HLS 流被采集（腾讯视频这类播放器）",
+  "url": "https://v.qq.com/x/cover/mzc00200abc/xyz.html",
+  "title": "某剧集 第01集_腾讯视频",
+  "domMedia": [
+    {
+      "src": "https://apd-vlive.apdcdn.tc.qq.com/main.m3u8?token=1",
+      "kind": "video",
+      "ext": "m3u8",
+      "width": 1280,
+      "height": 720,
+      "duration": 2400
+    },
+    {
+      "src": "https://apd-vlive.apdcdn.tc.qq.com/main.m3u8?token=1",
+      "kind": "video",
+      "ext": "m3u8",
+      "width": 1280,
+      "height": 720,
+      "duration": 2400
+    }
+  ],
+  "expect": {
+    "nodes": 1,
+    "variants": 1,
+    "title": "某剧集 第01集",
+    "qualityLabels": [
+      "720P"
+    ],
+    "completeness": "video-only"
+  }
+}

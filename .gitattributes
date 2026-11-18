@@ -1,0 +1,7 @@
+# 统一使用 LF 存储，Windows 检出时由 Git 自行转换，避免整个仓库出现换行符噪音
+* text=auto eol=lf
+# 二进制资源不做转换
+*.png binary
+*.wasm binary
+*.bin binary
+*.crx binary
