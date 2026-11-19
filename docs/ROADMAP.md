@@ -698,6 +698,7 @@ async function remux(videoSource, audioSource, sink) {
 | 3 | iframe 逐层 `srcdoc` 装配（帧树配对 + 单层转义） | 跨域子文档内容进 `srcdoc`；配对不上就保留原地址 |
 | 4 | 预算与降级（单资源 / 总量 / 数量） | 超限只降级不失败，结果卡逐条列出原因；DOM 节点数不设上限（分片遍历，见 `ARCHIVE.md` §4.7） |
 | 5 | 防盗链：403 时临时补 Referer 重试（会话规则 + `tabIds:[-1]`） | 规则加得上删得掉；开关只能来自设置 |
+| 6 | 体积优化（对齐 SingleFile 默认）：删隐藏元素、精简未使用样式与字体、压缩 HTML | 结果卡列出省下的量；关掉开关后行为回到"原样保存"（`ARCHIVE.md` §4.8） |
 
 > P8 是 v1.1 之后追加的能力，未计入上面的 44 人日；它复用了已有的
 > `declarativeNetRequest`、`download_finalize` 与历史记录，没有引入新权限。
