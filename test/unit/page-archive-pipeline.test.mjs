@@ -547,6 +547,35 @@ test('字体精简：@font-face 的备用格式只抓第一个', async () => {
   assert.equal(result.stats.fontsPruned, 1);
 });
 
+test('字体精简：字符集里用不到的 unicode-range 子集不会被下载', async () => {
+  const css = '@font-face{font-family:"Used";src:url(cyr.woff2);unicode-range:U+0400-04FF}'
+    + '@font-face{font-family:"Used";src:url(cjk.woff2);unicode-range:U+4E00-9FFF}'
+    + 'body{font-family:"Used"}';
+  const harness = makeDeps({
+    response: pageResponse({
+      html: '<html><head><style>rhres://' + TOKEN + '/0</style></head><body><p>中文</p></body></html>',
+      resources: [{
+        index: 0,
+        kind: 'css-text',
+        url: 'https://e.com/page',
+        base: 'https://e.com/page',
+        context: 'css-block',
+        text: css
+      }]
+    }),
+    fetch: () => FONT
+  });
+
+  const result = await archivePage({ tabId: 1, pageUrl: 'https://e.com/page', options: {}, deps: harness.deps });
+  assert.equal(result.ok, true);
+
+  assert.deepEqual(requestedUrls(harness), ['https://e.com/cjk.woff2'], '西里尔子集不该被下载');
+  const doc = await harness.state.finalized.blob.text();
+  assert.ok(doc.includes('cjk.woff2') || doc.includes('base64,AAAA'), doc.slice(0, 200));
+  assert.ok(!doc.includes('cyr.woff2'), '用不到的子集应被删掉');
+  assert.equal(result.stats.fontsPruned, 1);
+});
+
 test('字体精简：有 @import 时整帧不动字体（导入的样式可能点名别的族）', async () => {
   const css = '@import url(theme.css);@font-face{font-family:"Orphan";src:url(orphan.woff2)}';
   const harness = makeDeps({

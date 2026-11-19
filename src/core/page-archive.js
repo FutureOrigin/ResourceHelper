@@ -947,6 +947,112 @@ export function pruneUnusedFontFaces(css, families) {
 }
 
 /**
+ * 把文档里出现过的字符压成升序码点表，供 `pruneUnusedUnicodeRanges` 使用。
+ *
+ * 传进来的是"这一帧最终会显示出来的文本"：HTML 全文（含文本节点与属性值，属性值覆盖
+ * `content: attr(x)`、`placeholder`、`alt` 这类由浏览器渲染的文字）加上该帧的样式文本
+ * （覆盖 `content: "…"` 里的图标字形）。宁可多收，不能漏收。
+ *
+ * @param {string[]} texts
+ * @returns {number[]|null} 没有输入时返回 null（调用方据此放弃判断）
+ */
+export function codePointsOf(texts) {
+  const list = Array.isArray(texts) ? texts.filter((item) => typeof item === 'string' && item) : [];
+  if (list.length === 0) return null;
+  const set = new Set(list.join(''));
+  const points = [];
+  for (const ch of set) {
+    const point = ch.codePointAt(0);
+    if (typeof point === 'number') points.push(point);
+  }
+  points.sort((a, b) => a - b);
+  return points;
+}
+
+/** 解析 `unicode-range` 的值；`U+4??` 这类通配与解析失败分开处理（失败返回 null） */
+function parseUnicodeRange(value) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const ranges = [];
+  for (const part of text.split(',')) {
+    const token = part.trim();
+    if (!token) continue;
+    const match = /^u\+([0-9a-f?]{1,6})(?:-([0-9a-f]{1,6}))?$/i.exec(token);
+    if (!match) return null;
+    let start;
+    let end;
+    if (match[1].includes('?')) {
+      start = parseInt(match[1].replace(/\?/g, '0'), 16);
+      end = parseInt(match[1].replace(/\?/g, 'f'), 16);
+    } else {
+      start = parseInt(match[1], 16);
+      end = match[2] ? parseInt(match[2], 16) : start;
+    }
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+    ranges.push([start, end]);
+  }
+  return ranges.length > 0 ? ranges : null;
+}
+
+/** 这组码点区间里有没有落在文档字符集里的（码点表已升序，二分查找） */
+function rangesIntersectPoints(ranges, sorted) {
+  for (const [start, end] of ranges) {
+    let lo = 0;
+    let hi = sorted.length - 1;
+    let found = sorted.length;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (sorted[mid] < start) lo = mid + 1;
+      else { found = mid; hi = mid - 1; }
+    }
+    if (found < sorted.length && sorted[found] <= end) return true;
+  }
+  return false;
+}
+
+/**
+ * 删掉"这份文档里一个字形都用不到"的 `@font-face` 子集。
+ *
+ * 字体文件大，厂商会按 `unicode-range` 把同一族切成十几份（拉丁、西里尔、希腊、越南语……）。
+ * 一份中文页面上，绝大多数子集永远不会被选中 —— 它们只是白占体积。判据只用
+ * `unicode-range` 与"文档里真实出现的字符"求交，两边都是确定的数据：
+ *
+ * - 没有 `unicode-range`、值解析不了 → 保留（不猜）；
+ * - 有交集 → 保留（哪怕只用到其中一个字符）；
+ * - 完全没交集 → 浏览器永远选不中它，删掉。
+ *
+ * @param {string} css
+ * @param {number[]|null} codePoints `codePointsOf` 的结果；null/空表示没有依据，不删
+ * @returns {{css:string, removed:number, removedBytes:number}}
+ */
+export function pruneUnusedUnicodeRanges(css, codePoints) {
+  const text = typeof css === 'string' ? css : '';
+  if (!text) return { css: text, removed: 0, removedBytes: 0 };
+  if (!Array.isArray(codePoints) || codePoints.length === 0) {
+    return { css: text, removed: 0, removedBytes: 0 };
+  }
+  const blocks = findFontFaceBlocks(text);
+  if (blocks.length === 0) return { css: text, removed: 0, removedBytes: 0 };
+
+  let out = '';
+  let cursor = 0;
+  let removed = 0;
+  for (const block of blocks) {
+    const declaration = readDeclarationValue(text.slice(block.bodyStart, block.bodyEnd), 'unicode-range');
+    if (!declaration) continue;
+    const ranges = parseUnicodeRange(cleanDeclarationValue(declaration.value));
+    if (!ranges) continue;
+    if (rangesIntersectPoints(ranges, codePoints)) continue;
+    out += text.slice(cursor, block.start);
+    cursor = block.end;
+    removed++;
+  }
+  if (removed === 0) return { css: text, removed: 0, removedBytes: 0 };
+  out += text.slice(cursor);
+  return { css: out, removed: removed, removedBytes: Math.max(0, text.length - out.length) };
+}
+
+/**
  * 收集一段 CSS 里"被点名"的字体族。
  *
  * 覆盖 `font-family`、`font` 简写、以及自定义属性里的引号字符串（`--font: "Foo"`）。
@@ -1092,6 +1198,7 @@ function extractStyleBlocks(html) {
 export function collectFrameFontFamilies(texts, html) {
   const families = collectHtmlFontFamilies(html);
   let unknown = false;
+  let imports = false;
 
   const localTexts = extractInlineStyles(html).concat(extractStyleBlocks(html));
   for (const text of localTexts) {
@@ -1101,12 +1208,16 @@ export function collectFrameFontFamilies(texts, html) {
   }
 
   for (const text of Array.isArray(texts) ? texts : []) {
-    if (/@import\b/i.test(text)) unknown = true;
+    if (/@import\b/i.test(text)) {
+      unknown = true;
+      // 导入的样式表不在手上：它可能点名别的字体，也可能带 content 字形
+      imports = true;
+    }
     const result = collectFontFamilies(text);
     if (result.unknown) unknown = true;
     for (const family of result.families) families.add(family);
   }
-  return { families, unknown };
+  return { families, unknown, imports };
 }
 
 /** CSS 字符串转义（只处理会破坏语法的字符） */
@@ -1146,6 +1257,40 @@ export function escapeStyleText(css) {
 }
 
 /**
+ * 确保文档里有 utf-8 的字符集声明，并且落在文件开头 1024 字节内。
+ *
+ * 这一点是硬要求：原页面可能只靠 HTTP 头的 `Content-Type: text/html; charset=utf-8` 声明编码
+ * （SPA 常见），DOM 里根本没有 `<meta charset>`。存成本地文件后没有 HTTP 头，浏览器只能按
+ * 系统默认编码猜（中文 Windows 上是 GBK），整页中文立刻变乱码。
+ *
+ * 文件字节是 UTF-8（Blob 由字符串写出），所以原页面即使声明了别的编码也必须改写成 utf-8。
+ */
+export function ensureUtf8Charset(html) {
+  const text = typeof html === 'string' ? html : '';
+  if (!text) return '<meta charset="utf-8">';
+
+  // 已有 <meta charset=...>：把值改成 utf-8（可能就是原页面的 gbk）
+  const charset = /<meta\b[^>]*\bcharset\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'/>]+)[^>]*>/i;
+  if (charset.test(text)) return text.replace(charset, '<meta charset="utf-8">');
+
+  // 老写法 <meta http-equiv="Content-Type" content="text/html; charset=gbk">
+  const httpEquiv = /<meta\b[^>]*\bhttp-equiv\s*=\s*(?:"content-type"|'content-type'|content-type)[^>]*>/i;
+  if (httpEquiv.test(text)) return text.replace(httpEquiv, '<meta charset="utf-8">');
+
+  const meta = '<meta charset="utf-8">';
+  const head = /<head(?:\s[^>]*)?>/i.exec(text);
+  const htmlTag = /<html(?:\s[^>]*)?>/i.exec(text);
+  const headAt = head ? head.index + head[0].length : -1;
+  const htmlAt = htmlTag ? htmlTag.index + htmlTag[0].length : -1;
+
+  // 浏览器只看前 1024 字节：<head> 前面被塞了超长属性时退回到 <html> 后面
+  if (headAt >= 0 && headAt <= 900) return text.slice(0, headAt) + meta + text.slice(headAt);
+  if (htmlAt >= 0) return text.slice(0, htmlAt) + meta + text.slice(htmlAt);
+  if (headAt >= 0) return text.slice(0, headAt) + meta + text.slice(headAt);
+  return meta + text;
+}
+
+/**
  * 组装最终文件。
  *
  * 前面加一行来源注释：用户半年后打开这个文件时，还能知道它来自哪个地址。
@@ -1163,7 +1308,7 @@ export function buildArchiveDocument(input) {
     + (sourceUrl ? ' · source ' + sourceUrl.replace(/--/g, '- -') : '')
     + ' · resources inlined as data URIs -->';
 
-  return '<!DOCTYPE html>\n' + comment + '\n' + html + '\n';
+  return '<!DOCTYPE html>\n' + comment + '\n' + ensureUtf8Charset(html) + '\n';
 }
 
 /**

@@ -78,8 +78,10 @@ content/page_archiver.js（每个 frame 各一份）
         ▼
 sidepanel/modules/page_archive.js（编排，I/O 全部注入 → 可单测）
   ① 逐 frame 采集（先注入再重试）    ② 帧树配对（src ↔ frame.url，配不上就还原）
-  ③ CSS 闭包：先按本帧词表删掉匹配不到的规则 → url() 内联；@import 递归展开，失败保底绝对地址
+  ③ CSS 闭包：先按本帧词表删掉匹配不到的规则、再删没人用的字体（整族 / `unicode-range` 子集）
+     → url() 内联；@import 递归展开，失败保底绝对地址
   ④ 二进制批量抓取（去重、预算）     ⑤ 从深到浅装配 srcdoc → 替换占位符
+     → 补 `<meta charset="utf-8">`（原页面可能只靠 HTTP 头声明编码，落地成文件后必须自带）
         │
         ├─▶ core/page-archive.js   占位符/URL/CSS/转义/装配/文件名（纯函数）
         ├─▶ core/page-frames.js    帧树、配对、srcdoc 转义（纯函数）

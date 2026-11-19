@@ -17,6 +17,7 @@ import {
   archiveFilename,
   buildArchiveDocument,
   classifyResource,
+  codePointsOf,
   collectFontFamilies,
   collectFrameFontFamilies,
   collectHtmlFontFamilies,
@@ -24,6 +25,7 @@ import {
   cssImportRef,
   cssUrlRef,
   describeSkipReason,
+  ensureUtf8Charset,
   escapeCssString,
   escapeHtmlAttr,
   escapeStyleText,
@@ -38,6 +40,7 @@ import {
   pruneFontFaceSources,
   pruneUnusedCss,
   pruneUnusedFontFaces,
+  pruneUnusedUnicodeRanges,
   replacePlaceholders,
   resourceExtension,
   scanCssReferences
@@ -170,7 +173,8 @@ test('文档装配：doctype + 来源注释 + 正文', () => {
   assert.ok(doc.startsWith('<!DOCTYPE html>\n'));
   assert.ok(doc.includes('saved by ResourceHelper'));
   assert.ok(doc.includes('source https://e.com/a?b=1'));
-  assert.ok(doc.includes('<html><body>hi</body></html>'));
+  // 没有 <head> 时就近插在 <html> 后面，正文不受影响
+  assert.ok(doc.includes('<html><meta charset="utf-8"><body>hi</body></html>'));
   assert.ok(doc.endsWith('</html>\n'));
 });
 
@@ -489,6 +493,86 @@ test('一帧的字体使用：没有被登记成 CSS 资源的 <style> 块也要
 
   const withVar = collectFrameFontFamilies([], '<style>body{font-family:var(--f)}</style>');
   assert.equal(withVar.unknown, true, '样式块里的 var() 同样要触发保守放弃');
+});
+
+/* ------------------------------------------------------------------ *
+ * 字符集与 unicode-range 子集精简
+ * ------------------------------------------------------------------ */
+
+test('字符集：去重、升序、支持星平面字符', () => {
+  assert.deepEqual(codePointsOf(['bb', 'a', '中', '😀']), [0x61, 0x62, 0x4e2d, 0x1f600]);
+  assert.equal(codePointsOf([]), null, '没有输入就没有依据');
+  assert.equal(codePointsOf(null), null);
+});
+
+test('字体子集精简：unicode-range 与文档字符没有交集就删掉', () => {
+  const css = '@font-face{font-family:"F";src:url(cyr.woff2);unicode-range:U+0400-04FF}'
+    + '@font-face{font-family:"F";src:url(cjk.woff2);unicode-range:U+4E00-9FFF}';
+  const pruned = pruneUnusedUnicodeRanges(css, codePointsOf(['中文']));
+  assert.equal(pruned.removed, 1);
+  assert.ok(pruned.css.includes('cjk.woff2'), '用得到的子集必须留下');
+  assert.ok(!pruned.css.includes('cyr.woff2'), '用不到的子集应整块删掉');
+  assert.ok(pruned.removedBytes > 0);
+});
+
+test('字体子集精简：没有 unicode-range、解析不了、全量范围都不动', () => {
+  const noRange = '@font-face{font-family:"F";src:url(a)}';
+  const broken = '@font-face{font-family:"F";src:url(b);unicode-range:U+zz}';
+  const full = '@font-face{font-family:"F";src:url(c);unicode-range:U+0-10FFFF}';
+  const points = codePointsOf(['x']);
+  assert.equal(pruneUnusedUnicodeRanges(noRange, points).removed, 0);
+  assert.equal(pruneUnusedUnicodeRanges(broken, points).removed, 0);
+  assert.equal(pruneUnusedUnicodeRanges(full, points).removed, 0);
+  assert.equal(pruneUnusedUnicodeRanges(noRange, null).removed, 0, '没有字符集就不删');
+  assert.equal(pruneUnusedUnicodeRanges(noRange, []).removed, 0);
+});
+
+test('字体子集精简：U+4?? 通配与多段 range 都按字符集判断', () => {
+  const wildcard = '@font-face{font-family:"F";src:url(a);unicode-range:U+4??}';
+  assert.equal(pruneUnusedUnicodeRanges(wildcard, codePointsOf(['中'])).removed, 1, 'U+4?? 是 0400-04FF，不含中文');
+  assert.equal(pruneUnusedUnicodeRanges(wildcard, codePointsOf(['Ё'])).removed, 0, 'U+0401 落在 0400-04FF');
+
+  const multi = '@font-face{font-family:"F";src:url(b);unicode-range:U+0100-024F, U+0370-03FF}';
+  assert.equal(pruneUnusedUnicodeRanges(multi, codePointsOf(['Ł'])).removed, 0, 'U+0141 命中第一段');
+  assert.equal(pruneUnusedUnicodeRanges(multi, codePointsOf(['中'])).removed, 1, '两段都没有中文');
+});
+
+/* ------------------------------------------------------------------ *
+ * 编码声明
+ * ------------------------------------------------------------------ */
+
+test('字符集：原页面没有 <meta charset> 时补在 <head> 里（否则本地打开是乱码）', () => {
+  assert.equal(
+    ensureUtf8Charset('<html><head><title>t</title></head><body>x</body></html>'),
+    '<html><head><meta charset="utf-8"><title>t</title></head><body>x</body></html>'
+  );
+  // 原页面声明别的编码：文件字节是 UTF-8，必须改写
+  assert.equal(
+    ensureUtf8Charset('<html><head><meta charset="gbk"></head></html>'),
+    '<html><head><meta charset="utf-8"></head></html>'
+  );
+  assert.equal(
+    ensureUtf8Charset('<html><head><meta http-equiv="Content-Type" content="text/html; charset=gbk"></head></html>'),
+    '<html><head><meta charset="utf-8"></head></html>'
+  );
+  // 没有 head：插到 <html> 后面；连 <html> 都没有：放最前面
+  assert.equal(ensureUtf8Charset('<html lang="zh">x</html>'), '<html lang="zh"><meta charset="utf-8">x</html>');
+  assert.equal(ensureUtf8Charset('<p>x</p>'), '<meta charset="utf-8"><p>x</p>');
+  assert.equal(ensureUtf8Charset(''), '<meta charset="utf-8">');
+  // 已经是 utf-8：幂等
+  const once = ensureUtf8Charset('<html><head></head></html>');
+  assert.equal(ensureUtf8Charset(once), once);
+});
+
+test('最终文件：字符集声明落在前 1024 字节内，且文档开头仍是 doctype', () => {
+  const doc = buildArchiveDocument({
+    html: '<html lang="zh-CN"><head><title>标题</title></head><body>中文</body></html>',
+    sourceUrl: 'https://e.com/x',
+    createdAt: '2026-11-19T00:00:00.000Z'
+  });
+  assert.ok(doc.startsWith('<!DOCTYPE html>'), doc.slice(0, 40));
+  const at = doc.toLowerCase().indexOf('<meta charset="utf-8">');
+  assert.ok(at > 0 && at < 1024, '偏移必须在前 1024 字节内，实际 ' + at);
 });
 
 test('token：随机源固定时长度稳定且只含安全字符', () => {

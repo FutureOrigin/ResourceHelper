@@ -20,6 +20,7 @@ import {
   applyCssReferences,
   buildArchiveDocument,
   classifyResource,
+  codePointsOf,
   collectFrameFontFamilies,
   cssImportRef,
   cssUrlRef,
@@ -32,6 +33,7 @@ import {
   pruneFontFaceSources,
   pruneUnusedCss,
   pruneUnusedFontFaces,
+  pruneUnusedUnicodeRanges,
   replacePlaceholders,
   scanCssReferences
 } from '../../core/page-archive.js';
@@ -310,6 +312,8 @@ export async function archivePage(input) {
 
     /** frameId -> 被点名的字体族集合；null 表示"看不清，整帧不删字体" */
     const fontUsage = new Map();
+    /** frameId -> 升序码点表；null 表示"字符集不完整，不按字符集删子集" */
+    const charPoints = new Map();
 
     /* ---------------- 3. 样式闭包 ---------------- */
     const allResources = [];
@@ -338,7 +342,8 @@ export async function archivePage(input) {
       stats: stats,
       skip: skip,
       vocabularies: vocabularies,
-      fontUsage: fontUsage
+      fontUsage: fontUsage,
+      charPoints: charPoints
     });
     const cssValues = new Map(); // `${frameId}:${index}` -> 最终 CSS 文本
 
@@ -367,10 +372,18 @@ export async function archivePage(input) {
       }
       for (const [frameId, texts] of byFrame) {
         // 有样式表没抓下来、或出现了 @import / var()：看不清就整帧不动字体
-        if (failedFrames.has(frameId)) { fontUsage.set(frameId, null); continue; }
+        if (failedFrames.has(frameId)) {
+          fontUsage.set(frameId, null);
+          charPoints.set(frameId, null);
+          continue;
+        }
         const frame = collected.find((item) => item.frameId === frameId);
-        const usage = collectFrameFontFamilies(texts, frame && frame.html ? frame.html : '');
+        const html = frame && frame.html ? frame.html : '';
+        const usage = collectFrameFontFamilies(texts, html);
         fontUsage.set(frameId, usage.unknown ? null : usage.families);
+        // 按 unicode-range 删子集：字符集必须完整。@import 的样式不在手上，
+        // 里面可能带 content 字形，这种情况整帧放弃。
+        charPoints.set(frameId, usage.imports ? null : codePointsOf([html].concat(texts)));
       }
     }
 
@@ -551,6 +564,8 @@ function createResourceCache(input) {
   const vocabularies = opts.vocabularies instanceof Map ? opts.vocabularies : new Map();
   /** frameId -> 被点名的字体族集合；null/缺失表示不做字体精简 */
   const fontUsage = opts.fontUsage instanceof Map ? opts.fontUsage : new Map();
+  /** frameId -> 升序码点表；null/缺失表示不按字符集删子集 */
+  const charPoints = opts.charPoints instanceof Map ? opts.charPoints : new Map();
 
   /** url -> { ok, value, bytes, error } —— value 是 data URI 或原始绝对地址 */
   const binary = new Map();
@@ -711,6 +726,15 @@ function createResourceCache(input) {
         if (facesPruned.removed > 0) {
           stats.fontsPruned += facesPruned.removed;
           cssText = facesPruned.css;
+        }
+      }
+      // 厂商按 unicode-range 把字体切成十几份：这份文档里一个字形都用不到的，浏览器永远选不中
+      const points = charPoints.get(frameId);
+      if (points) {
+        const rangesPruned = pruneUnusedUnicodeRanges(cssText, points);
+        if (rangesPruned.removed > 0) {
+          stats.fontsPruned += rangesPruned.removed;
+          cssText = rangesPruned.css;
         }
       }
     }
