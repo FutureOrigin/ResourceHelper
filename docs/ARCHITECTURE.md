@@ -71,7 +71,8 @@ sidepanel/modules/font_text_decode.js
 
 ~~~
 content/page_archiver.js（每个 frame 各一份）
-  documentElement.cloneNode(true) → 与活节点按索引配对（结构变了就报错重试）
+  documentElement.cloneNode(true) → 两次元素树指纹比对（结构变了就报错重试）
+  图片的 currentSrc 按文档序单独收集；每 2000 个节点让出一次主线程
   要内联的地址 → rhres://<token>/<n>；iframe → rhframe://<token>/<n>
         │ { html, resources[], frames[], stats }
         ▼

@@ -37,9 +37,7 @@ export const DEFAULT_ARCHIVE_LIMITS = Object.freeze({
   // @import 嵌套深度
   maxCssDepth: 3,
   // 最多嵌入多少个子框架
-  maxFrames: 20,
-  // DOM 节点上限：超过就明确拒绝，而不是让标签页卡死
-  maxNodes: 40000
+  maxFrames: 20
 });
 
 /** 这些协议不可能被扩展 fetch，也不该出现在归档里 */

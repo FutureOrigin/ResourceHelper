@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { ARCHIVE_SCHEME, FRAME_SCHEME } from '../../src/core/page-archive.js';
+import { ARCHIVE_SCHEME, DEFAULT_ARCHIVE_LIMITS, FRAME_SCHEME } from '../../src/core/page-archive.js';
 import { COLLECT_MESSAGE } from '../../src/sidepanel/modules/page_archive.js';
 import { DEFAULT_SETTINGS, normalizeSettings } from '../../src/core/settings.js';
 
@@ -54,6 +54,22 @@ test('采集消息名在两侧一致，且侧边栏用的文件与 manifest 相�
   assert.ok(orchestrator.includes('export const COLLECT_MESSAGE = ' + "'" + COLLECT_MESSAGE + "'"));
   assert.ok(orchestrator.includes("ARCHIVER_FILE = 'content/page_archiver.js'"));
   assert.ok(manifest.content_scripts.some((item) => (item.js || []).includes('content/page_archiver.js')));
+});
+
+test('大页面不再按节点数拒绝，遍历分片让出主线程', () => {
+  // 4 万节点在今天的站点上很常见：按节点数直接拒绝等于把功能判死
+  assert.ok(!('maxNodes' in DEFAULT_ARCHIVE_LIMITS), '预算里不应再有节点数上限');
+  assert.ok(!/maxNodes/.test(archiver), '内容脚本不应再接收节点数上限');
+  assert.ok(!/TOO_MANY_NODES/.test(archiver), '内容脚本不应再返回 TOO_MANY_NODES');
+  assert.ok(!/maxNodes/.test(orchestrator), '侧边栏不应再把节点数上限传给内容脚本');
+
+  // 卡死的真正原因是"一次跑完的长任务"：必须分片，并在片与片之间让出主线程
+  assert.match(archiver, /const WALK_CHUNK = \d+/, '缺少分片大小常量');
+  assert.match(archiver, /await yieldToPage\(\)/, '遍历必须分片让出主线程');
+  assert.match(archiver, /function yieldToPage\(\)[\s\S]{0,200}setTimeout\(/, '让出主线程要用宏任务，rAF 在后台标签页不跑');
+  // 异步回包：跨宏任务之后才 sendResponse，监听器必须同步返回 true 保持通道打开
+  assert.match(archiver, /async function collect\(/, '采集必须可跨宏任务');
+  assert.match(archiver, /\.then\(/, '采集结果必须异步回包');
 });
 
 test('后台提供批量抓取与 frame 枚举接口', () => {

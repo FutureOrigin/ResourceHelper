@@ -218,6 +218,16 @@ test('选项规整：默认值、布尔值、预算单位换算前置校验', ()
   assert.equal(custom.limits.maxTotalBytes, 12345);
 });
 
+test('预算里不再有 DOM 节点上限：大页面不该被直接拒绝', () => {
+  const defaults = normalizeArchiveOptions(null);
+  assert.equal('maxNodes' in defaults.limits, false, '节点数不是资源预算，不该出现在这里');
+
+  // 旧调用方即使还在传，也只会被当作未知字段丢掉，不会重新变成一道上限
+  const custom = normalizeArchiveOptions({ limits: { maxNodes: 10 } });
+  assert.equal('maxNodes' in custom.limits, false);
+  assert.ok(custom.limits.maxFrames > 0, '其它预算项不受影响');
+});
+
 test('token：随机源固定时长度稳定且只含安全字符', () => {
   assert.equal(createToken(() => 0), '0000000000');
   assert.equal(createToken(() => 0.5).length, 10);

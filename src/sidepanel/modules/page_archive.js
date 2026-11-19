@@ -233,8 +233,7 @@ export async function archivePage(input) {
         removeScripts: options.removeScripts,
         embedFrames: options.embedFrames,
         onlySelection: options.onlySelection,
-        maxFrames: limits.maxFrames,
-        maxNodes: limits.maxNodes
+        maxFrames: limits.maxFrames
       }
     };
 
@@ -468,7 +467,6 @@ function skipMessage(code) {
     case 'NO_RECEIVER': return '页面没有响应内容脚本，可能是浏览器内部页面或扩展刚更新（刷新后再试）';
     case 'NOT_HTML': return '当前文档不是 HTML，无法整页归档';
     case 'MUTATING': return '页面在保存过程中变化，请重试';
-    case 'TOO_MANY_NODES': return '页面 DOM 过大，已停止以保护标签页';
     default: return '页面采集失败';
   }
 }
