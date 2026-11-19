@@ -319,6 +319,14 @@ test('CSS 精简：转义标识符能对上真实类名（Tailwind 的 sm\\:flex
   assert.equal(pruneUnusedCss('.x\\3a z{x:1}', VOCAB).css, '');
 });
 
+test('CSS 精简：超深嵌套不会把栈打爆（超过上限就原样保留）', () => {
+  let css = '.unused{x:1}';
+  for (let i = 0; i < 60; i++) css = '@media screen{' + css + '}';
+  const result = pruneUnusedCss(css, VOCAB);
+  assert.equal(result.css, css, '超过嵌套上限的部分必须原样保留');
+  assert.equal(result.removedRules, 0);
+});
+
 test('CSS 精简：结构损坏时原样保留剩下的内容，绝不丢', () => {
   const broken = '.used{x:1}.broken{color:red';
   assert.equal(pruneUnusedCss(broken, VOCAB).css, broken);
@@ -400,6 +408,23 @@ test('字体收集：var() 或解析不了的 font 简写标记为不确定', ()
   assert.equal(collectFontFamilies('body{font-family:"Foo"}').unknown, false);
 });
 
+test('字体收集：!important 与注释不算族名的一部分', () => {
+  const important = collectFontFamilies('body{font-family:"Foo" !important}');
+  assert.deepEqual([...important.families], ['foo'], '!important 不能被当成族名后缀');
+
+  const shorthand = collectFontFamilies('body{font:bold 12px/1.5 "Bar" !important}');
+  assert.deepEqual([...shorthand.families], ['bar']);
+
+  const commented = collectFontFamilies('body{font-family:/* 旧值 */ "Baz"}');
+  assert.deepEqual([...commented.families], ['baz']);
+});
+
+test('字体精简：@font-face 里被注释掉的旧族名不能顶掉真的那个', () => {
+  const css = '@font-face{/* font-family:"Old"; */ font-family:"Used"; src:url(x.woff2)}';
+  assert.equal(pruneUnusedFontFaces(css, new Set(['used'])).removed, 0, '真族名被点名，必须保留');
+  assert.equal(pruneUnusedFontFaces(css, new Set(['old'])).removed, 1, '按注释里的旧名字判断就会删错');
+});
+
 test('字体精简：没人点名的 @font-face 整块删掉，点名了就保留', () => {
   const css = '@font-face{font-family:"Used";src:url(a.woff2)}@font-face{font-family:"Orphan";src:url(b.woff2)}';
   const used = new Set(['used']);
@@ -455,6 +480,15 @@ test('一帧的字体使用：没有 url() 的内联 style 也要算点名', () 
 
   const withVar = collectFrameFontFamilies([], '<div style="font-family:var(--f)">x</div>');
   assert.equal(withVar.unknown, true);
+});
+
+test('一帧的字体使用：没有被登记成 CSS 资源的 <style> 块也要算点名', () => {
+  // 采集端只登记含 url()/@import 的样式块，纯文字的 <style> 会原样留在 HTML 里
+  const merged = collectFrameFontFamilies([], '<style>body{font-family:"Inline Block Font"}</style>');
+  assert.deepEqual([...merged.families], ['inline block font']);
+
+  const withVar = collectFrameFontFamilies([], '<style>body{font-family:var(--f)}</style>');
+  assert.equal(withVar.unknown, true, '样式块里的 var() 同样要触发保守放弃');
 });
 
 test('token：随机源固定时长度稳定且只含安全字符', () => {

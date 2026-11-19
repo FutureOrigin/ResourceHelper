@@ -363,11 +363,15 @@ export function pruneUnusedCss(css, vocabulary) {
   const text = typeof css === 'string' ? css : '';
   if (!text || !vocabulary) return { css: text, removedRules: 0, removedBytes: 0 };
   const stats = { removedRules: 0 };
-  const output = pruneCssRange(text, 0, text.length, vocabulary, stats);
+  const output = pruneCssRange(text, 0, text.length, vocabulary, stats, 0);
   return { css: output, removedRules: stats.removedRules, removedBytes: Math.max(0, text.length - output.length) };
 }
 
-function pruneCssRange(text, from, to, vocabulary, stats) {
+/** `@media` 的嵌套上限：正常样式表远达不到，防的是刻意构造的深层嵌套把栈打爆 */
+const MAX_CSS_DEPTH = 32;
+
+function pruneCssRange(text, from, to, vocabulary, stats, depth) {
+  if (depth > MAX_CSS_DEPTH) return text.slice(from, to);
   let out = '';
   let i = from;
   while (i < to) {
@@ -396,7 +400,7 @@ function pruneCssRange(text, from, to, vocabulary, stats) {
     if (prelude.startsWith('@')) {
       const name = atRuleName(prelude);
       if (PRUNABLE_AT_RULES.has(name)) {
-        const inner = pruneCssRange(text, statement.blockStart + 1, statement.blockEnd, vocabulary, stats);
+        const inner = pruneCssRange(text, statement.blockStart + 1, statement.blockEnd, vocabulary, stats, depth + 1);
         out += text.slice(statement.start, statement.blockStart + 1) + inner + '}';
       } else {
         out += text.slice(statement.start, statement.blockEnd + 1);
@@ -793,10 +797,16 @@ function skipCssString(text, start) {
  * 读一条声明（`name: value`）的值区间。
  *
  * 不能简单用 `[^;}]+`：`src` 里的 `url(data:...;base64,...)` 含有分号，
- * 必须按括号层级判断真正的结束位置。
+ * 必须按括号层级判断真正的结束位置。注释里的同名文本不算（作者常把旧声明
+ * 注释掉，读错了会拿旧族名去判断新字体）。
  */
 function readDeclarationValue(body, name) {
-  const match = new RegExp('\\b' + name + '\\s*:', 'i').exec(body);
+  const pattern = new RegExp('\\b' + name + '\\s*:', 'gi');
+  let match = null;
+  let candidate;
+  while ((candidate = pattern.exec(body))) {
+    if (!isInsideCssComment(body, candidate.index)) { match = candidate; break; }
+  }
   if (!match) return null;
   let i = match.index + match[0].length;
   const start = i;
@@ -819,11 +829,27 @@ function readDeclarationValue(body, name) {
   return { start: start, end: i, value: body.slice(start, i) };
 }
 
+/** index 是否落在 CSS 块注释里（只看它之前最近的开始/结束标记） */
+function isInsideCssComment(text, index) {
+  const open = text.lastIndexOf('/*', index);
+  if (open < 0) return false;
+  const close = text.lastIndexOf('*/', index);
+  return close < open;
+}
+
+/** 去掉声明值里的注释与结尾的 `!important`：它们不属于族名 */
+function cleanDeclarationValue(value) {
+  return String(value || '')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/!\s*important\s*$/i, '')
+    .trim();
+}
+
 /** 从 @font-face 块体里取它声明的族名；取不到返回空串 */
 function fontFaceFamily(body) {
   const declaration = readDeclarationValue(body, 'font-family');
   if (!declaration) return '';
-  return normalizeFontFamily(declaration.value);
+  return normalizeFontFamily(cleanDeclarationValue(declaration.value));
 }
 
 /**
@@ -948,14 +974,14 @@ export function collectFontFamilies(css) {
   let match;
   const declaration = /\bfont-family\s*:\s*([^;}]+)/gi;
   while ((match = declaration.exec(rest))) {
-    const value = match[1];
+    const value = cleanDeclarationValue(match[1]);
     if (/var\s*\(/i.test(value)) { unknown = true; continue; }
     for (const part of splitCssList(value, ',')) addFontFamily(families, part);
   }
 
   const shorthand = /\bfont\s*:\s*([^;}]+)/gi;
   while ((match = shorthand.exec(rest))) {
-    const value = match[1];
+    const value = cleanDeclarationValue(match[1]);
     if (/var\s*\(/i.test(value)) { unknown = true; continue; }
     const list = parseFontShorthandFamilies(value);
     if (!list) { unknown = true; continue; }
@@ -1042,6 +1068,22 @@ function extractInlineStyles(html) {
 }
 
 /**
+ * HTML 里没有被登记成 CSS 资源的 `<style>` 块。
+ *
+ * 采集端只登记"含 url()/@import"的样式块，纯文字的 `<style>body{font-family:"Inter"}</style>`
+ * 会原样留在 HTML 里。不把它的族名算进来，另一张样式表里的 @font-face 就会被误删。
+ */
+function extractStyleBlocks(html) {
+  const blocks = [];
+  const pattern = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
+  let match;
+  while ((match = pattern.exec(html))) {
+    blocks.push(decodeHtmlAttribute(match[1]));
+  }
+  return blocks;
+}
+
+/**
  * 一帧的字体使用情况：把这一帧所有样式文本与 HTML 合起来看。
  *
  * 有 `@import` 就放弃判断：导入的样式表不在手上，它可能点名了别的字体，
@@ -1051,8 +1093,9 @@ export function collectFrameFontFamilies(texts, html) {
   const families = collectHtmlFontFamilies(html);
   let unknown = false;
 
-  for (const styleText of extractInlineStyles(html)) {
-    const result = collectFontFamilies(styleText);
+  const localTexts = extractInlineStyles(html).concat(extractStyleBlocks(html));
+  for (const text of localTexts) {
+    const result = collectFontFamilies(text);
     if (result.unknown) unknown = true;
     for (const family of result.families) families.add(family);
   }

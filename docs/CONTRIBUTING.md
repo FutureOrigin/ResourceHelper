@@ -64,7 +64,7 @@ npm run check      # 构建 + 单测 + 语料 + 效率 + 探针，全绿再动�
 ## 6. 测试与门禁
 
 ```bash
-npm test           # 437 个单元测试
+npm test           # 441 个单元测试
 npm run corpus     # 站点语料 + KPI 门禁
 npm run bench      # 效率基准（分类 / 扫描 / 内存）
 npm run diagnose   # 缺陷探针

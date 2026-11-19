@@ -410,6 +410,9 @@
     return Boolean(node.classList && node.classList.contains(OVERLAY_CLASS));
   }
 
+  /** 隐藏块里一旦有这些"被引用的定义"，整块都不能删（删了样式/图标会缺） */
+  const HIDDEN_KEEP_SUBTREE = 'style, link, symbol, defs, clipPath, mask, linearGradient, radialGradient, pattern, filter, marker, g[id]';
+
   /**
    * 这个元素是不是"不渲染"（display:none）。
    *
@@ -421,7 +424,12 @@
     if (!document.body || !document.body.contains(node)) return false;
     if (typeof window.getComputedStyle !== 'function') return false;
     const style = window.getComputedStyle(node);
-    return Boolean(style) && style.display === 'none';
+    if (!style || style.display !== 'none') return false;
+    // CSS 不关心 <style>/<link> 挂在哪，隐藏容器里的样式照样作用于整页；
+    // <symbol>/<defs>/<g id> 这类是被 <use> 引用的图标定义，删了页面就没有图标。
+    // 这类隐藏块整块保留 —— 少省一点，好过样式或图标消失。
+    if (typeof node.querySelector === 'function' && node.querySelector(HIDDEN_KEEP_SUBTREE)) return false;
+    return true;
   }
 
   function countElements(root) {
