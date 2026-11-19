@@ -13,7 +13,7 @@
 ```bash
 node --version      # 需要 >= 22
 npm run build       # src/ -> out/ResourceHelper（语法门禁 + manifest 资产门禁）
-npm test            # 424 个单元测试
+npm test            # 437 个单元测试
 npm run corpus      # 站点语料回归 + KPI 门禁
 npm run bench       # 效率基准
 npm run diagnose    # 缺陷探针

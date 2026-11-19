@@ -83,6 +83,11 @@ test('体积优化的接线：隐藏元素、选择器词表、CSS 精简', () =
   assert.match(orchestrator, /pruneUnusedCss\(/, '侧边栏没有调用 CSS 精简');
   assert.match(orchestrator, /removeHidden: options\.removeHidden/, '开关没有传给内容脚本');
 
+  // 字体：备用格式与整族未引用的 @font-face 都要在抓取前处理
+  assert.match(orchestrator, /collectFrameFontFamilies/, '侧边栏没有做按帧的字体分析');
+  assert.match(orchestrator, /pruneFontFaceSources\(/, '侧边栏没有精简 @font-face 的备用格式');
+  assert.match(orchestrator, /pruneUnusedFontFaces\(/, '侧边栏没有删整族未引用的 @font-face');
+
   // 设置项：默认开，且两侧 UI 都能改
   assert.equal(DEFAULT_SETTINGS.archiveRemoveHidden, true);
   assert.equal(DEFAULT_SETTINGS.archiveRemoveUnusedCss, true);

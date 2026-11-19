@@ -17,6 +17,9 @@ import {
   archiveFilename,
   buildArchiveDocument,
   classifyResource,
+  collectFontFamilies,
+  collectFrameFontFamilies,
+  collectHtmlFontFamilies,
   createToken,
   cssImportRef,
   cssUrlRef,
@@ -27,11 +30,14 @@ import {
   framePlaceholderFor,
   isFetchableUrl,
   normalizeArchiveOptions,
+  normalizeFontFamily,
   normalizeResourceUrl,
   normalizeSelectorVocabulary,
   parsePlaceholder,
   placeholderFor,
+  pruneFontFaceSources,
   pruneUnusedCss,
+  pruneUnusedFontFaces,
   replacePlaceholders,
   resourceExtension,
   scanCssReferences
@@ -318,6 +324,137 @@ test('CSS 精简：结构损坏时原样保留剩下的内容，绝不丢', () =
   assert.equal(pruneUnusedCss(broken, VOCAB).css, broken);
   assert.equal(pruneUnusedCss('', VOCAB).css, '');
   assert.equal(pruneUnusedCss('.unused{x:1}', null).css, '.unused{x:1}', '没有词表就不精简');
+});
+
+/* ------------------------------------------------------------------ *
+ * 字体精简
+ * ------------------------------------------------------------------ */
+
+test('字体族名归一化：去引号、折叠空白、大小写不敏感', () => {
+  assert.equal(normalizeFontFamily(' "Open   Sans" '), 'open sans');
+  assert.equal(normalizeFontFamily("'Inter'"), 'inter');
+  assert.equal(normalizeFontFamily('Arial'), 'arial');
+  assert.equal(normalizeFontFamily(''), '');
+});
+
+test('字体精简：@font-face 只留第一个 url()，备用格式不再抓', () => {
+  const one = '@font-face{font-family:Foo;src:url(a.woff2) format("woff2"), url(a.woff) format("woff")}';
+  const result = pruneFontFaceSources(one);
+  assert.equal(result.css, '@font-face{font-family:Foo;src: url(a.woff2) format("woff2")}');
+  assert.equal(result.removed, 1);
+  assert.ok(result.removedBytes > 0, '省下的字节要能统计');
+
+  // local() 不占字节，留着（本机已有就先用）
+  const withLocal = '@font-face{font-family:Foo;src:local("Foo"), url(a.woff2) format("woff2"), url(a.woff)}';
+  assert.equal(
+    pruneFontFaceSources(withLocal).css,
+    '@font-face{font-family:Foo;src: local("Foo"), url(a.woff2) format("woff2")}'
+  );
+
+  // 只有一个地址：不动
+  const single = '@font-face{font-family:Foo;src:url(a.woff2) format("woff2")}';
+  assert.equal(pruneFontFaceSources(single).css, single);
+  assert.equal(pruneFontFaceSources(single).removed, 0);
+
+  // 只有 local()：不动
+  const localOnly = '@font-face{font-family:Foo;src:local("Foo")}';
+  assert.equal(pruneFontFaceSources(localOnly).css, localOnly);
+
+  // data: URI 里的分号不能把 src 提前截断
+  const inline = '@font-face{font-family:Foo;src:url(data:font/woff2;base64,AAAA) format("woff2"), url(b.woff)}';
+  assert.equal(
+    pruneFontFaceSources(inline).css,
+    '@font-face{font-family:Foo;src: url(data:font/woff2;base64,AAAA) format("woff2")}'
+  );
+
+  // 多个 @font-face 各自处理
+  const two = '@font-face{font-family:A;src:url(a1),url(a2)}@font-face{font-family:B;src:url(b1),url(b2)}';
+  const prunedTwo = pruneFontFaceSources(two);
+  assert.equal(prunedTwo.removed, 2);
+  assert.equal(prunedTwo.css, '@font-face{font-family:A;src: url(a1)}@font-face{font-family:B;src: url(b1)}');
+});
+
+test('字体收集：font-family 列表、font 简写、引号字符串都算点名', () => {
+  const listed = collectFontFamilies('body{font-family:"Open Sans", Arial, sans-serif}');
+  assert.deepEqual([...listed.families].sort(), ['arial', 'open sans']);
+  assert.equal(listed.unknown, false);
+
+  const shorthand = collectFontFamilies('strong{font:italic bold 14px/1.5 "Foo Bar", serif}');
+  assert.deepEqual([...shorthand.families], ['foo bar']);
+
+  const custom = collectFontFamilies(':root{--font-sans:"Custom Sans"}');
+  assert.deepEqual([...custom.families], ['custom sans'], '自定义属性里的引号串也要认');
+
+  const generic = collectFontFamilies('p{font-family:system-ui, -apple-system, monospace}');
+  assert.deepEqual([...generic.families], ['-apple-system'], '通用族名不是具体字体');
+});
+
+test('字体收集：@font-face 自己声明的那一行不算点名', () => {
+  const result = collectFontFamilies('@font-face{font-family:"Orphan";src:url(x.woff2)}');
+  assert.deepEqual([...result.families], []);
+});
+
+test('字体收集：var() 或解析不了的 font 简写标记为不确定', () => {
+  assert.equal(collectFontFamilies('body{font-family:var(--font)}').unknown, true);
+  assert.equal(collectFontFamilies('body{font:menu}').unknown, true);
+  assert.equal(collectFontFamilies('body{font-family:"Foo"}').unknown, false);
+});
+
+test('字体精简：没人点名的 @font-face 整块删掉，点名了就保留', () => {
+  const css = '@font-face{font-family:"Used";src:url(a.woff2)}@font-face{font-family:"Orphan";src:url(b.woff2)}';
+  const used = new Set(['used']);
+  const result = pruneUnusedFontFaces(css, used);
+  assert.equal(result.css, '@font-face{font-family:"Used";src:url(a.woff2)}');
+  assert.equal(result.removed, 1);
+
+  // 没有 font-family 的块、空集合：都不动
+  const nameless = '@font-face{src:url(x.woff2)}';
+  assert.equal(pruneUnusedFontFaces(nameless, used).removed, 0);
+  assert.equal(pruneUnusedFontFaces(css, new Set()).removed, 0);
+  assert.equal(pruneUnusedFontFaces(css, null).removed, 0);
+});
+
+test('字体收集：HTML 表现属性与 <font face> 也算点名（含实体解码）', () => {
+  const html = '<svg><text font-family="Icon Font, serif">x</text></svg>'
+    + '<font face="Legacy Font">y</font>'
+    + '<text font-family="&quot;Quoted Font&quot;">z</text>';
+  const families = collectHtmlFontFamilies(html);
+  assert.deepEqual([...families].sort(), ['icon font', 'legacy font', 'quoted font']);
+});
+
+test('字体精简：@media 里的 @font-face 与 unicode-range 也按同一规则处理', () => {
+  const css = '@media screen{@font-face{font-family:"A";src:url(a.woff2) format("woff2"), url(a.woff) format("woff");'
+    + 'unicode-range:U+0000-00FF}}';
+  const pruned = pruneFontFaceSources(css);
+  assert.equal(pruned.removed, 1);
+  assert.ok(pruned.css.includes('unicode-range:U+0000-00FF'), '其它描述符不能动');
+
+  const unused = pruneUnusedFontFaces(pruned.css, new Set(['b']));
+  assert.equal(unused.removed, 1);
+  assert.equal(unused.css, '@media screen{}');
+
+  // 族名对得上就整块留下
+  assert.equal(pruneUnusedFontFaces(pruned.css, new Set(['a'])).removed, 0);
+});
+
+test('一帧的字体使用：合并所有样式文本与 HTML，遇到 @import 就放弃判断', () => {
+  const merged = collectFrameFontFamilies(
+    ['body{font-family:"Foo"}', '.icon{font-family:"Icon"}'],
+    '<svg><text font-family="Bar">x</text></svg>'
+  );
+  assert.deepEqual([...merged.families].sort(), ['bar', 'foo', 'icon']);
+  assert.equal(merged.unknown, false);
+
+  const imported = collectFrameFontFamilies(['@import url(theme.css);body{font-family:"Foo"}'], '');
+  assert.equal(imported.unknown, true, '导入的样式表可能点名别的字体，宁可不动');
+});
+
+test('一帧的字体使用：没有 url() 的内联 style 也要算点名', () => {
+  const merged = collectFrameFontFamilies([], '<div style="font-family:&quot;Inline Font&quot;, serif">x</div>');
+  assert.deepEqual([...merged.families], ['inline font']);
+
+  const withVar = collectFrameFontFamilies([], '<div style="font-family:var(--f)">x</div>');
+  assert.equal(withVar.unknown, true);
 });
 
 test('token：随机源固定时长度稳定且只含安全字符', () => {

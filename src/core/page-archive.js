@@ -720,6 +720,352 @@ function readCssEscape(text, start) {
   return { value: ch, end: i + 1 };
 }
 
+/* ------------------------------------------------------------------ *
+ * 字体精简（体积）
+ * ------------------------------------------------------------------ */
+
+/** 通用族名：不是具体字体，@font-face 不会用它们当名字 */
+const GENERIC_FONT_FAMILIES = new Set([
+  'serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui',
+  'ui-serif', 'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'math', 'emoji',
+  'fangsong', 'inherit', 'initial', 'unset', 'revert', 'revert-layer', 'default'
+]);
+
+/** 字体族名归一化：去引号、折叠空白、小写（CSS 字体族名大小写不敏感） */
+export function normalizeFontFamily(value) {
+  let text = String(value == null ? '' : value).trim();
+  while (text.length >= 2) {
+    const first = text[0];
+    if ((first !== '"' && first !== "'") || text[text.length - 1] !== first) break;
+    text = text.slice(1, -1).trim();
+  }
+  return text.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/**
+ * 找出所有 `@font-face` 块（偏移 + 块体）。
+ *
+ * 只认 CSS 结构里的，不碰注释与字符串里的同名文本；块体用配对花括号确定，
+ * 所以 `src: url(data:...;base64,...)` 里的分号不会提前截断。
+ */
+function findFontFaceBlocks(css) {
+  const blocks = [];
+  let i = 0;
+  while (i < css.length) {
+    const ch = css[i];
+    if (ch === '/' && css[i + 1] === '*') {
+      const end = css.indexOf('*/', i + 2);
+      i = end < 0 ? css.length : end + 2;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      const end = skipCssString(css, i);
+      i = end < 0 ? css.length : end;
+      continue;
+    }
+    if (ch === '@' && /^@font-face[\s{]/i.test(css.slice(i, i + 12))) {
+      let open = i;
+      while (open < css.length && css[open] !== '{') open++;
+      if (open >= css.length) break;
+      const close = findClosingBrace(css, open, css.length);
+      if (close < 0) break;
+      blocks.push({ start: i, bodyStart: open + 1, bodyEnd: close, end: close + 1 });
+      i = close + 1;
+      continue;
+    }
+    i++;
+  }
+  return blocks;
+}
+
+function skipCssString(text, start) {
+  const quote = text[start];
+  let i = start + 1;
+  while (i < text.length) {
+    if (text[i] === '\\') { i += 2; continue; }
+    if (text[i] === quote) return i + 1;
+    i++;
+  }
+  return -1;
+}
+
+/**
+ * 读一条声明（`name: value`）的值区间。
+ *
+ * 不能简单用 `[^;}]+`：`src` 里的 `url(data:...;base64,...)` 含有分号，
+ * 必须按括号层级判断真正的结束位置。
+ */
+function readDeclarationValue(body, name) {
+  const match = new RegExp('\\b' + name + '\\s*:', 'i').exec(body);
+  if (!match) return null;
+  let i = match.index + match[0].length;
+  const start = i;
+  let paren = 0;
+  let quote = '';
+  while (i < body.length) {
+    const ch = body[i];
+    if (quote) {
+      if (ch === '\\') { i += 2; continue; }
+      if (ch === quote) quote = '';
+      i++;
+      continue;
+    }
+    if (ch === '"' || ch === "'") { quote = ch; i++; continue; }
+    if (ch === '(') { paren++; i++; continue; }
+    if (ch === ')') { paren = Math.max(0, paren - 1); i++; continue; }
+    if (paren === 0 && (ch === ';' || ch === '}')) break;
+    i++;
+  }
+  return { start: start, end: i, value: body.slice(start, i) };
+}
+
+/** 从 @font-face 块体里取它声明的族名；取不到返回空串 */
+function fontFaceFamily(body) {
+  const declaration = readDeclarationValue(body, 'font-family');
+  if (!declaration) return '';
+  return normalizeFontFamily(declaration.value);
+}
+
+/**
+ * 删掉 `@font-face` 里用不到的备用字体格式。
+ *
+ * 浏览器只会用 `src` 列表里第一个它支持的格式；`url(x.woff2) ..., url(x.woff) ...`
+ * 会把同一份字体抓两遍、内联两遍 —— 这是老站点上很容易被忽视的一大块。
+ * 保留所有 `local()`（不产生字节，是"本机已有就先用"）和第一个 `url()`。
+ *
+ * @returns {{css:string, removed:number, removedBytes:number}}
+ */
+export function pruneFontFaceSources(css) {
+  const text = typeof css === 'string' ? css : '';
+  if (!text) return { css: text, removed: 0, removedBytes: 0 };
+  const blocks = findFontFaceBlocks(text);
+  if (blocks.length === 0) return { css: text, removed: 0, removedBytes: 0 };
+
+  let out = '';
+  let cursor = 0;
+  let removed = 0;
+  for (const block of blocks) {
+    const body = text.slice(block.bodyStart, block.bodyEnd);
+    const rewritten = rewriteSrcValue(body);
+    if (!rewritten) continue;
+    out += text.slice(cursor, block.bodyStart) + rewritten.body;
+    cursor = block.bodyEnd;
+    removed += rewritten.removed;
+  }
+  if (removed === 0) return { css: text, removed: 0, removedBytes: 0 };
+  out += text.slice(cursor);
+  return { css: out, removed: removed, removedBytes: Math.max(0, text.length - out.length) };
+}
+
+function rewriteSrcValue(body) {
+  const declaration = readDeclarationValue(body, 'src');
+  if (!declaration) return null;
+  const items = splitCssList(declaration.value, ',');
+  if (items.length < 2) return null;
+
+  let seenUrl = false;
+  const kept = [];
+  let removed = 0;
+  for (const item of items) {
+    if (!/\burl\s*\(/i.test(item)) {
+      kept.push(item); // local(...)：不占字节，留着
+      continue;
+    }
+    if (!seenUrl) {
+      seenUrl = true;
+      kept.push(item);
+      continue;
+    }
+    removed++;
+  }
+  if (removed === 0) return null;
+
+  return {
+    body: body.slice(0, declaration.start) + ' ' + kept.join(', ') + body.slice(declaration.end),
+    removed: removed
+  };
+}
+
+/**
+ * 删掉"文档里没人点名"的 `@font-face` 整块。
+ *
+ * 判据是**族名**：只要有规则（含内联 style、SVG 表现属性、`<font face>`）提到过
+ * 这个族名，就保留 —— 哪怕实际只用到其中一两个字重，也不猜。判不出来（缺
+ * `font-family`、族名解析不出来）一律保留。
+ *
+ * @param {string} css
+ * @param {Set<string>|null} families 归一化后的族名集合；空集合视为"没有依据"
+ */
+export function pruneUnusedFontFaces(css, families) {
+  const text = typeof css === 'string' ? css : '';
+  if (!text) return { css: text, removed: 0, removedBytes: 0 };
+  if (!(families instanceof Set) || families.size === 0) {
+    return { css: text, removed: 0, removedBytes: 0 };
+  }
+  const blocks = findFontFaceBlocks(text);
+  if (blocks.length === 0) return { css: text, removed: 0, removedBytes: 0 };
+
+  let out = '';
+  let cursor = 0;
+  let removed = 0;
+  for (const block of blocks) {
+    const family = fontFaceFamily(text.slice(block.bodyStart, block.bodyEnd));
+    if (!family || families.has(family)) continue;
+    out += text.slice(cursor, block.start);
+    cursor = block.end;
+    removed++;
+  }
+  if (removed === 0) return { css: text, removed: 0, removedBytes: 0 };
+  out += text.slice(cursor);
+  return { css: out, removed: removed, removedBytes: Math.max(0, text.length - out.length) };
+}
+
+/**
+ * 收集一段 CSS 里"被点名"的字体族。
+ *
+ * 覆盖 `font-family`、`font` 简写、以及自定义属性里的引号字符串（`--font: "Foo"`）。
+ * `@font-face` 自己声明的那一行不算点名，否则每个字体都会"自我证明"存在。
+ *
+ * `unknown` 为真表示这段 CSS 里有 `var()` 或解析不了的 `font` 简写 —— 调用方
+ * 应该放弃整帧的字体精简，因为族名可能是运行时才拼出来的。
+ *
+ * @returns {{families:Set<string>, unknown:boolean}}
+ */
+export function collectFontFamilies(css) {
+  const text = typeof css === 'string' ? css : '';
+  const families = new Set();
+  if (!text) return { families, unknown: false };
+  let unknown = false;
+
+  let rest = '';
+  let cursor = 0;
+  for (const block of findFontFaceBlocks(text)) {
+    rest += text.slice(cursor, block.start);
+    cursor = block.end;
+  }
+  rest += text.slice(cursor);
+
+  let match;
+  const declaration = /\bfont-family\s*:\s*([^;}]+)/gi;
+  while ((match = declaration.exec(rest))) {
+    const value = match[1];
+    if (/var\s*\(/i.test(value)) { unknown = true; continue; }
+    for (const part of splitCssList(value, ',')) addFontFamily(families, part);
+  }
+
+  const shorthand = /\bfont\s*:\s*([^;}]+)/gi;
+  while ((match = shorthand.exec(rest))) {
+    const value = match[1];
+    if (/var\s*\(/i.test(value)) { unknown = true; continue; }
+    const list = parseFontShorthandFamilies(value);
+    if (!list) { unknown = true; continue; }
+    for (const part of list) addFontFamily(families, part);
+  }
+
+  // 自定义属性等地方的引号字符串：宁可多认，不能漏认
+  const quoted = /(["'])([^"'\n]{1,120})\1/g;
+  while ((match = quoted.exec(rest))) addFontFamily(families, match[2]);
+
+  return { families, unknown };
+}
+
+function addFontFamily(set, raw) {
+  const name = normalizeFontFamily(raw);
+  if (!name) return;
+  if (GENERIC_FONT_FAMILIES.has(name)) return;
+  if (name.includes('(') || name.includes(')')) return;
+  set.add(name);
+}
+
+/**
+ * 解析 `font` 简写里的族名列表。
+ *
+ * 简写语法是 `[style || variant || weight || stretch]? size[/line-height]? family`，
+ * 所以"族名"就是尺寸之后的部分。找不到尺寸关键字就返回 null（调用方据此放弃判断）。
+ */
+function parseFontShorthandFamilies(value) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const size = /(?:^|\s)(?:[+-]?\d*\.?\d+(?:px|pt|pc|em|rem|ex|ch|vw|vh|vmin|vmax|cm|mm|in|q|%)|xx-small|x-small|small|medium|large|x-large|xx-large|xxx-large|smaller|larger)(?:\s*\/\s*[^\s,]+)?\s+/i;
+  const match = size.exec(text);
+  if (!match) return null;
+  const list = text.slice(match.index + match[0].length).trim();
+  if (!list) return null;
+  const parts = splitCssList(list, ',');
+  return parts.length > 0 ? parts : null;
+}
+
+const HTML_ENTITIES = { '&quot;': '"', '&#39;': "'", '&apos;': "'", '&amp;': '&' };
+
+function decodeHtmlAttribute(value) {
+  return String(value || '').replace(/&quot;|&#39;|&apos;|&amp;/g, (entity) => HTML_ENTITIES[entity]);
+}
+
+/**
+ * 从 HTML 里收集"被点名"的字体族：SVG 的 `font-family` 表现属性与 `<font face>`。
+ *
+ * 内联 `style="font-family:…"` 不用在这里管 —— 它本身就是一个 CSS 文本资源。
+ */
+export function collectHtmlFontFamilies(html) {
+  const text = typeof html === 'string' ? html : '';
+  const families = new Set();
+  if (!text) return families;
+
+  let match;
+  const attr = /\bfont-family\s*=\s*(["'])([^"']*)\1/gi;
+  while ((match = attr.exec(text))) {
+    const value = decodeHtmlAttribute(match[2]);
+    for (const part of value.split(',')) addFontFamily(families, part);
+  }
+  const face = /<font\b[^>]*\bface\s*=\s*(["'])([^"']*)\1/gi;
+  while ((match = face.exec(text))) {
+    const value = decodeHtmlAttribute(match[2]);
+    for (const part of value.split(',')) addFontFamily(families, part);
+  }
+  return families;
+}
+
+/**
+ * HTML 里所有内联 `style` 属性的值（已解码实体，可以直接当 CSS 声明列表解析）。
+ *
+ * 没有 `url()` 的 style 属性不会被采集端单独登记成 CSS 资源，字体族就得从这里补；
+ * 带 `url()` 的那些会被换成占位符，但它们的原文已经在样式文本里，两条路合起来是完整的。
+ */
+function extractInlineStyles(html) {
+  const styles = [];
+  const pattern = /\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
+  let match;
+  while ((match = pattern.exec(html))) {
+    styles.push(decodeHtmlAttribute(match[1] != null ? match[1] : match[2]));
+  }
+  return styles;
+}
+
+/**
+ * 一帧的字体使用情况：把这一帧所有样式文本与 HTML 合起来看。
+ *
+ * 有 `@import` 就放弃判断：导入的样式表不在手上，它可能点名了别的字体，
+ * 这时候删字体是拿不准的（宁可留）。
+ */
+export function collectFrameFontFamilies(texts, html) {
+  const families = collectHtmlFontFamilies(html);
+  let unknown = false;
+
+  for (const styleText of extractInlineStyles(html)) {
+    const result = collectFontFamilies(styleText);
+    if (result.unknown) unknown = true;
+    for (const family of result.families) families.add(family);
+  }
+
+  for (const text of Array.isArray(texts) ? texts : []) {
+    if (/@import\b/i.test(text)) unknown = true;
+    const result = collectFontFamilies(text);
+    if (result.unknown) unknown = true;
+    for (const family of result.families) families.add(family);
+  }
+  return { families, unknown };
+}
+
 /** CSS 字符串转义（只处理会破坏语法的字符） */
 export function escapeCssString(value) {
   return String(value == null ? '' : value)

@@ -20,6 +20,7 @@ import {
   applyCssReferences,
   buildArchiveDocument,
   classifyResource,
+  collectFrameFontFamilies,
   cssImportRef,
   cssUrlRef,
   describeSkipReason,
@@ -28,7 +29,9 @@ import {
   normalizeArchiveOptions,
   normalizeResourceUrl,
   normalizeSelectorVocabulary,
+  pruneFontFaceSources,
   pruneUnusedCss,
+  pruneUnusedFontFaces,
   replacePlaceholders,
   scanCssReferences
 } from '../../core/page-archive.js';
@@ -213,6 +216,7 @@ export async function archivePage(input) {
     hiddenRemoved: 0,
     cssPrunedBytes: 0,
     cssPrunedRules: 0,
+    fontsPruned: 0,
     canvas: 0,
     bytesUsed: 0,
     binaryCount: 0,
@@ -304,6 +308,9 @@ export async function archivePage(input) {
       }
     }
 
+    /** frameId -> 被点名的字体族集合；null 表示"看不清，整帧不删字体" */
+    const fontUsage = new Map();
+
     /* ---------------- 3. 样式闭包 ---------------- */
     const allResources = [];
     for (const frame of collected) {
@@ -330,11 +337,43 @@ export async function archivePage(input) {
       limits: limits,
       stats: stats,
       skip: skip,
-      vocabularies: vocabularies
+      vocabularies: vocabularies,
+      fontUsage: fontUsage
     });
     const cssValues = new Map(); // `${frameId}:${index}` -> 最终 CSS 文本
 
     const cssResources = allResources.filter((resource) => resource.kind === 'css-link' || resource.kind === 'css-text');
+
+    // 字体必须在"抓取之前"删掉：先内联再删，字体已经占过预算了。
+    // 所以先只把样式原文拿回来（loadCss 有缓存，主循环不会重复下载），
+    // 按帧算出"被点名的族名"，再交给 processCss 边处理边删。
+    if (options.removeUnusedCss && cssResources.length > 0) {
+      const rawCss = new Map();
+      const failedFrames = new Set();
+      for (const resource of cssResources) {
+        if (resource.kind !== 'css-link') continue;
+        const loaded = await cache.loadCss(resource.url);
+        if (loaded.ok) rawCss.set(resource.frameId + ':' + resource.index, loaded.text);
+        else failedFrames.add(resource.frameId);
+      }
+      const byFrame = new Map();
+      for (const resource of cssResources) {
+        const text = resource.kind === 'css-text'
+          ? resource.text
+          : rawCss.get(resource.frameId + ':' + resource.index);
+        if (typeof text !== 'string') continue;
+        if (!byFrame.has(resource.frameId)) byFrame.set(resource.frameId, []);
+        byFrame.get(resource.frameId).push(text);
+      }
+      for (const [frameId, texts] of byFrame) {
+        // 有样式表没抓下来、或出现了 @import / var()：看不清就整帧不动字体
+        if (failedFrames.has(frameId)) { fontUsage.set(frameId, null); continue; }
+        const frame = collected.find((item) => item.frameId === frameId);
+        const usage = collectFrameFontFamilies(texts, frame && frame.html ? frame.html : '');
+        fontUsage.set(frameId, usage.unknown ? null : usage.families);
+      }
+    }
+
     if (cssResources.length > 0) {
       report('css', '正在内联样式表…', 0, cssResources.length);
       for (let i = 0; i < cssResources.length; i++) {
@@ -510,6 +549,8 @@ function createResourceCache(input) {
   const skip = opts.skip || (() => {});
   /** frameId -> 选择器词表；没有词表的 frame 不做 CSS 精简 */
   const vocabularies = opts.vocabularies instanceof Map ? opts.vocabularies : new Map();
+  /** frameId -> 被点名的字体族集合；null/缺失表示不做字体精简 */
+  const fontUsage = opts.fontUsage instanceof Map ? opts.fontUsage : new Map();
 
   /** url -> { ok, value, bytes, error } —— value 是 data URI 或原始绝对地址 */
   const binary = new Map();
@@ -655,6 +696,23 @@ function createResourceCache(input) {
         stats.cssPrunedRules += pruned.removedRules;
       }
       cssText = pruned.css;
+    }
+
+    if (options.removeUnusedCss) {
+      // 备用格式（woff2 后面再挂一个 woff）浏览器根本不会用，删掉省一次抓取
+      const srcPruned = pruneFontFaceSources(cssText);
+      if (srcPruned.removed > 0) {
+        stats.fontsPruned += srcPruned.removed;
+        cssText = srcPruned.css;
+      }
+      const families = fontUsage.get(frameId);
+      if (families) {
+        const facesPruned = pruneUnusedFontFaces(cssText, families);
+        if (facesPruned.removed > 0) {
+          stats.fontsPruned += facesPruned.removed;
+          cssText = facesPruned.css;
+        }
+      }
     }
 
     const references = scanCssReferences(cssText);

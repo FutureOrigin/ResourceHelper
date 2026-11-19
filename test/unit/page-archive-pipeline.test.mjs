@@ -490,3 +490,78 @@ test('内容脚本报的隐藏元素数量会汇总进结果', async () => {
   assert.equal(result.ok, true);
   assert.equal(result.stats.hiddenRemoved, 7);
 });
+
+/* ------------------------------------------------------------------ *
+ * 字体精简
+ * ------------------------------------------------------------------ */
+
+const FONT = { ok: true, status: 200, mime: 'font/woff2', bytes: 10, base64: 'AAAA' };
+
+function stylePage(css) {
+  return pageResponse({
+    html: '<html><head><style>rhres://' + TOKEN + '/0</style></head><body><p>x</p></body></html>',
+    resources: [{
+      index: 0,
+      kind: 'css-text',
+      url: 'https://e.com/page',
+      base: 'https://e.com/page',
+      context: 'css-block',
+      text: css
+    }]
+  });
+}
+
+function requestedUrls(harness) {
+  return harness.state.fetchBatches.flatMap((batch) => batch.requests.map((request) => request.url));
+}
+
+test('字体精简：没人点名的 @font-face 在抓取之前就被删掉', async () => {
+  const css = '@font-face{font-family:"Used";src:url(used.woff2)}'
+    + '@font-face{font-family:"Orphan";src:url(orphan.woff2)}'
+    + 'body{font-family:"Used"}';
+  const harness = makeDeps({ response: stylePage(css), fetch: () => FONT });
+
+  const result = await archivePage({ tabId: 1, pageUrl: 'https://e.com/page', options: {}, deps: harness.deps });
+  assert.equal(result.ok, true);
+
+  assert.deepEqual(requestedUrls(harness), ['https://e.com/used.woff2'], '没点名的字体不该被下载');
+  const doc = await harness.state.finalized.blob.text();
+  assert.ok(doc.includes('font-family:"Used"'), '用到的字体必须留下');
+  assert.ok(!doc.includes('Orphan'), '整块 @font-face 应被删掉');
+  assert.equal(result.stats.fontsPruned, 1);
+  assert.equal(result.stats.fonts, 1, '只应内联一个字体');
+});
+
+test('字体精简：@font-face 的备用格式只抓第一个', async () => {
+  const css = '@font-face{font-family:"Used";src:url(a.woff2) format("woff2"), url(a.woff) format("woff")}'
+    + 'body{font-family:"Used"}';
+  const harness = makeDeps({ response: stylePage(css), fetch: () => FONT });
+
+  const result = await archivePage({ tabId: 1, pageUrl: 'https://e.com/page', options: {}, deps: harness.deps });
+  assert.equal(result.ok, true);
+
+  assert.deepEqual(requestedUrls(harness), ['https://e.com/a.woff2'], '浏览器只用第一个支持的格式');
+  const doc = await harness.state.finalized.blob.text();
+  assert.ok(doc.includes('url("data:font/woff2;base64,AAAA")'), doc);
+  assert.ok(!doc.includes('a.woff'), '备用格式应从 src 里删掉');
+  assert.equal(result.stats.fontsPruned, 1);
+});
+
+test('字体精简：有 @import 时整帧不动字体（导入的样式可能点名别的族）', async () => {
+  const css = '@import url(theme.css);@font-face{font-family:"Orphan";src:url(orphan.woff2)}';
+  const harness = makeDeps({
+    response: stylePage(css),
+    fetch: (request) => {
+      if (request.url.endsWith('theme.css')) {
+        return { ok: true, status: 200, mime: 'text/css', text: 'body{color:red}' };
+      }
+      return FONT;
+    }
+  });
+
+  const result = await archivePage({ tabId: 1, pageUrl: 'https://e.com/page', options: {}, deps: harness.deps });
+  assert.equal(result.ok, true);
+
+  assert.ok(requestedUrls(harness).includes('https://e.com/orphan.woff2'), '@import 在场时应保留字体');
+  assert.equal(result.stats.fontsPruned, 0);
+});

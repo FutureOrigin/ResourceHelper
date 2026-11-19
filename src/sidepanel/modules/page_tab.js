@@ -274,6 +274,7 @@ export class PageTab {
     if (stats.scriptsRemoved) summary.push('移除脚本 ' + stats.scriptsRemoved);
     if (stats.hiddenRemoved) summary.push('移除隐藏元素 ' + stats.hiddenRemoved);
     if (stats.cssPrunedBytes) summary.push('样式省 ' + bus.formatBytes(stats.cssPrunedBytes));
+    if (stats.fontsPruned) summary.push('精简字体 ' + stats.fontsPruned + ' 处');
     if (stats.skipped) summary.push('跳过 ' + stats.skipped);
     card.appendChild(el('div', { class: 'archive-result-meta', text: summary.filter(Boolean).join(' · ') }));
 
