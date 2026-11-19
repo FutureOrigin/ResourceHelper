@@ -28,8 +28,10 @@ import {
   isFetchableUrl,
   normalizeArchiveOptions,
   normalizeResourceUrl,
+  normalizeSelectorVocabulary,
   parsePlaceholder,
   placeholderFor,
+  pruneUnusedCss,
   replacePlaceholders,
   resourceExtension,
   scanCssReferences
@@ -202,6 +204,8 @@ test('选项规整：默认值、布尔值、预算单位换算前置校验', ()
     removeScripts: true,
     embedFrames: true,
     onlySelection: false,
+    removeHidden: true,
+    removeUnusedCss: true,
     limits: defaults.limits
   });
   assert.ok(defaults.limits.maxTotalBytes > defaults.limits.maxResourceBytes);
@@ -210,11 +214,15 @@ test('选项规整：默认值、布尔值、预算单位换算前置校验', ()
     inlineImages: false,
     removeScripts: 'yes',
     onlySelection: true,
+    removeHidden: false,
+    removeUnusedCss: false,
     limits: { maxTotalBytes: 12345 }
   });
   assert.equal(custom.inlineImages, false);
   assert.equal(custom.removeScripts, true, '类型不对回退默认值');
   assert.equal(custom.onlySelection, true);
+  assert.equal(custom.removeHidden, false);
+  assert.equal(custom.removeUnusedCss, false);
   assert.equal(custom.limits.maxTotalBytes, 12345);
 });
 
@@ -226,6 +234,90 @@ test('预算里不再有 DOM 节点上限：大页面不该被直接拒绝', () 
   const custom = normalizeArchiveOptions({ limits: { maxNodes: 10 } });
   assert.equal('maxNodes' in custom.limits, false);
   assert.ok(custom.limits.maxFrames > 0, '其它预算项不受影响');
+});
+
+/* ------------------------------------------------------------------ *
+ * CSS 精简
+ * ------------------------------------------------------------------ */
+
+const VOCAB = normalizeSelectorVocabulary({
+  tags: ['html', 'body', 'div', 'a', 'span'],
+  classes: ['used', 'b', 'sm:flex', 'x:y'],
+  ids: ['main'],
+  attrs: ['data-x', 'class', 'href']
+});
+
+test('选择器词表：缺字段/空词表返回 null（宁可不精简，也不能删光样式）', () => {
+  assert.equal(normalizeSelectorVocabulary(null), null);
+  assert.equal(normalizeSelectorVocabulary({}), null);
+  assert.equal(normalizeSelectorVocabulary({ tags: [] }), null);
+  const vocab = normalizeSelectorVocabulary({ tags: ['div'], classes: ['a', 3, ''] });
+  assert.ok(vocab.tags.has('div'));
+  assert.equal(vocab.classes.size, 1, '非字符串项被丢掉');
+});
+
+test('CSS 精简：删掉文档里根本不存在的类 / id / 标签 / 属性规则', () => {
+  assert.equal(pruneUnusedCss('.used{color:red}.unused{color:blue}', VOCAB).css, '.used{color:red}');
+  assert.equal(pruneUnusedCss('#main{x:1}#gone{x:2}', VOCAB).css, '#main{x:1}');
+  assert.equal(pruneUnusedCss('div{x:1}table{x:2}', VOCAB).css, 'div{x:1}');
+  assert.equal(pruneUnusedCss('[data-x]{x:1}[data-y]{x:2}', VOCAB).css, '[data-x]{x:1}');
+  assert.equal(pruneUnusedCss('.b.also-gone{x:1}', VOCAB).css, '', '复合选择器缺一个类就匹配不到');
+  assert.equal(pruneUnusedCss('.b.used{x:1}', VOCAB).css, '.b.used{x:1}');
+  assert.equal(pruneUnusedCss('.b .used{x:1}', VOCAB).css, '.b .used{x:1}', '后代组合要求每一段都能对上');
+  assert.equal(pruneUnusedCss('.b .gone{x:1}', VOCAB).css, '');
+});
+
+test('CSS 精简：选择器列表里只要有一条可能匹配就保留整条规则', () => {
+  assert.equal(pruneUnusedCss('.gone, .b{x:1}', VOCAB).css, '.gone, .b{x:1}');
+  assert.equal(pruneUnusedCss('.gone, .also-gone{x:1}', VOCAB).css, '');
+});
+
+test('CSS 精简：判断不了的写法一律保留（伪类参数 / 命名空间 / 嵌套）', () => {
+  assert.equal(pruneUnusedCss(':is(.gone,.b){x:1}', VOCAB).css, ':is(.gone,.b){x:1}');
+  assert.equal(pruneUnusedCss('.gone:not(.b){x:1}', VOCAB).css, '.gone:not(.b){x:1}');
+  assert.equal(pruneUnusedCss('.gone:nth-child(2n){x:1}', VOCAB).css, '.gone:nth-child(2n){x:1}');
+  assert.equal(pruneUnusedCss('svg|rect{x:1}', VOCAB).css, 'svg|rect{x:1}');
+  assert.equal(pruneUnusedCss('& .gone{x:1}', VOCAB).css, '& .gone{x:1}');
+  assert.equal(pruneUnusedCss(':root{--x:1}', VOCAB).css, ':root{--x:1}');
+  assert.equal(pruneUnusedCss('*{box-sizing:border-box}', VOCAB).css, '*{box-sizing:border-box}');
+});
+
+test('CSS 精简：@media 递归精简，@font-face/@keyframes/@page 原样保留', () => {
+  assert.equal(pruneUnusedCss('@media screen{.unused{x:1}}', VOCAB).css, '@media screen{}');
+  assert.equal(pruneUnusedCss('@media screen{.used{x:1}}', VOCAB).css, '@media screen{.used{x:1}}');
+  assert.equal(pruneUnusedCss('@supports (display:grid){.unused{x:1}}', VOCAB).css, '@supports (display:grid){}');
+
+  const fontFace = '@font-face{font-family:Foo;src:url(foo.woff2)}';
+  assert.equal(pruneUnusedCss(fontFace, VOCAB).css, fontFace);
+  const keyframes = '@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}';
+  assert.equal(pruneUnusedCss(keyframes, VOCAB).css, keyframes);
+  assert.equal(pruneUnusedCss('@page{margin:1cm}', VOCAB).css, '@page{margin:1cm}');
+  assert.equal(pruneUnusedCss('@import url(a.css);', VOCAB).css, '@import url(a.css);');
+  assert.equal(pruneUnusedCss('@layer a, b;', VOCAB).css, '@layer a, b;');
+  assert.equal(pruneUnusedCss('@layer base{.unused{x:1}}', VOCAB).css, '@layer base{}');
+});
+
+test('CSS 精简：去掉注释，字符串里的括号/注释符不影响解析', () => {
+  assert.equal(pruneUnusedCss('/* 头部 */\n.used{x:1}\n/* 尾部 */', VOCAB).css, '\n.used{x:1}\n');
+  assert.equal(pruneUnusedCss('.used{content:"}"}.unused{x:1}', VOCAB).css, '.used{content:"}"}');
+  assert.equal(pruneUnusedCss('.used{content:"/*"}', VOCAB).css, '.used{content:"/*"}');
+  const result = pruneUnusedCss('/* 大段注释 */ .used{x:1}', VOCAB);
+  assert.equal(result.removedRules, 0);
+  assert.ok(result.removedBytes > 0, '注释也算省下的字节');
+});
+
+test('CSS 精简：转义标识符能对上真实类名（Tailwind 的 sm\\:flex）', () => {
+  assert.equal(pruneUnusedCss('.sm\\:flex{display:flex}', VOCAB).css, '.sm\\:flex{display:flex}');
+  assert.equal(pruneUnusedCss('.sm\\:hidden{display:none}', VOCAB).css, '');
+  assert.equal(pruneUnusedCss('.x\\3a y{x:1}', VOCAB).css, '.x\\3a y{x:1}', '十六进制转义解出 x:y');
+  assert.equal(pruneUnusedCss('.x\\3a z{x:1}', VOCAB).css, '');
+});
+
+test('CSS 精简：结构损坏时原样保留剩下的内容，绝不丢', () => {
+  const broken = '.used{x:1}.broken{color:red';
+  assert.equal(pruneUnusedCss(broken, VOCAB).css, broken);
+  assert.equal(pruneUnusedCss('', VOCAB).css, '');
+  assert.equal(pruneUnusedCss('.unused{x:1}', null).css, '.unused{x:1}', '没有词表就不精简');
 });
 
 test('token：随机源固定时长度稳定且只含安全字符', () => {

@@ -410,3 +410,83 @@ test('总量预算：超过上限后停止内联，其余保留在线地址', as
   const doc = await harness.state.finalized.blob.text();
   assert.ok(doc.includes('src="https://cdn.e.com/big2.png"'));
 });
+
+/* ------------------------------------------------------------------ *
+ * 体积优化
+ * ------------------------------------------------------------------ */
+
+function vocabularyOf(tags, classes) {
+  return { tags: tags, classes: classes, ids: [], attrs: ['class'] };
+}
+
+test('按帧词表精简 CSS：匹配不到的规则被删，也不再抓它的背景图', async () => {
+  const html = '<html><body><div class="used"></div><style>rhres://' + TOKEN + '/0</style></body></html>';
+  const harness = makeDeps({
+    response: pageResponse({
+      html: html,
+      vocabulary: vocabularyOf(['html', 'body', 'div', 'style'], ['used']),
+      resources: [{
+        index: 0,
+        kind: 'css-text',
+        url: 'https://e.com/page',
+        base: 'https://e.com/page',
+        context: 'css-block',
+        text: '.used{color:red}.unused{background:url(unused.png)}'
+      }]
+    })
+  });
+
+  const result = await archivePage({ tabId: 1, pageUrl: 'https://e.com/page', options: {}, deps: harness.deps });
+  assert.equal(result.ok, true);
+
+  const doc = await harness.state.finalized.blob.text();
+  assert.ok(doc.includes('.used{color:red}'), '能匹配的规则必须保留');
+  assert.ok(!doc.includes('.unused'), '匹配不到的规则应被删掉');
+
+  const requested = harness.state.fetchBatches.flatMap((batch) => batch.requests.map((request) => request.url));
+  assert.deepEqual(requested, [], '被删规则里的背景图不该再抓');
+  assert.ok(result.stats.cssPrunedBytes > 0, '要如实统计省下的字节');
+  assert.equal(result.stats.cssPrunedRules, 1);
+});
+
+test('关掉"精简未使用的样式"时规则与背景图都原样保留', async () => {
+  const html = '<html><body><div class="used"></div><style>rhres://' + TOKEN + '/0</style></body></html>';
+  const harness = makeDeps({
+    response: pageResponse({
+      html: html,
+      vocabulary: vocabularyOf(['html', 'body', 'div', 'style'], ['used']),
+      resources: [{
+        index: 0,
+        kind: 'css-text',
+        url: 'https://e.com/page',
+        base: 'https://e.com/page',
+        context: 'css-block',
+        text: '.unused{background:url(unused.png)}'
+      }]
+    }),
+    fetch: () => PNG
+  });
+
+  const result = await archivePage({
+    tabId: 1,
+    pageUrl: 'https://e.com/page',
+    options: { removeUnusedCss: false },
+    deps: harness.deps
+  });
+  assert.equal(result.ok, true);
+
+  const requested = harness.state.fetchBatches.flatMap((batch) => batch.requests.map((request) => request.url));
+  assert.deepEqual(requested, ['https://e.com/unused.png'], '关掉精简后仍应抓背景图');
+  const doc = await harness.state.finalized.blob.text();
+  assert.ok(doc.includes('.unused{background:url("data:image/png;base64,iVBORw0KGgo=")}'));
+  assert.equal(result.stats.cssPrunedBytes, 0);
+});
+
+test('内容脚本报的隐藏元素数量会汇总进结果', async () => {
+  const harness = makeDeps({
+    response: pageResponse({ stats: { images: 0, styles: 0, scripts: 0, skipped: 0, hiddenRemoved: 7 } })
+  });
+  const result = await archivePage({ tabId: 1, pageUrl: 'https://e.com/page', options: {}, deps: harness.deps });
+  assert.equal(result.ok, true);
+  assert.equal(result.stats.hiddenRemoved, 7);
+});

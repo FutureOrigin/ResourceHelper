@@ -310,6 +310,416 @@ export function applyCssReferences(css, references, resolve) {
   return { css: out, replaced: replaced };
 }
 
+/* ------------------------------------------------------------------ *
+ * CSS 精简（体积）
+ * ------------------------------------------------------------------ */
+
+/**
+ * 选择器词表：文档里真实出现过的标签名 / 类名 / id / 属性名。
+ *
+ * 内容脚本采集时顺手收集（它看得见活 DOM），侧边栏用它判断"这条规则还有没有
+ * 可能匹配"。词表只用于**否定判断**：选择器要求的类名不在词表里，它就绝不可能
+ * 匹配，整条规则可以删掉；只要有一项判断不了，就保留 —— 宁可多留，不能删错。
+ */
+export function normalizeSelectorVocabulary(input) {
+  const raw = input && typeof input === 'object' ? input : null;
+  if (!raw) return null;
+  const toSet = (list) => {
+    const set = new Set();
+    if (!Array.isArray(list)) return set;
+    for (const item of list) {
+      if (typeof item === 'string' && item) set.add(item);
+    }
+    return set;
+  };
+  const vocabulary = {
+    tags: toSet(raw.tags),
+    classes: toSet(raw.classes),
+    ids: toSet(raw.ids),
+    attrs: toSet(raw.attrs)
+  };
+  // 空词表说明调用方没给有效数据：宁可不动 CSS，也不要把整份样式删光
+  if (!vocabulary.tags.size && !vocabulary.classes.size && !vocabulary.ids.size && !vocabulary.attrs.size) {
+    return null;
+  }
+  return vocabulary;
+}
+
+/** 这些 at-rule 的块里还是普通规则，可以继续递归精简 */
+const PRUNABLE_AT_RULES = new Set(['media', 'supports', 'container', 'layer', 'document']);
+
+/**
+ * 删掉"不可能匹配当前文档"的 CSS 规则，并顺带去掉注释。
+ *
+ * 只做必要条件判断：选择器里的每个复合选择器都要求它引用的标签/类/id/属性
+ * 在文档里出现过。任何一项判断不了（带参数的伪类、命名空间、嵌套 `&`、
+ * 转义失败……）都退回"保留"，所以最坏结果是文件大一点，而不是样式错乱。
+ *
+ * @param {string} css
+ * @param {Object|null} vocabulary normalizeSelectorVocabulary 的结果
+ * @returns {{css:string, removedRules:number, removedBytes:number}}
+ */
+export function pruneUnusedCss(css, vocabulary) {
+  const text = typeof css === 'string' ? css : '';
+  if (!text || !vocabulary) return { css: text, removedRules: 0, removedBytes: 0 };
+  const stats = { removedRules: 0 };
+  const output = pruneCssRange(text, 0, text.length, vocabulary, stats);
+  return { css: output, removedRules: stats.removedRules, removedBytes: Math.max(0, text.length - output.length) };
+}
+
+function pruneCssRange(text, from, to, vocabulary, stats) {
+  let out = '';
+  let i = from;
+  while (i < to) {
+    const ch = text[i];
+    if (ch === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2);
+      i = end < 0 || end + 2 > to ? to : end + 2;
+      continue; // 注释直接丢掉：也是体积的一部分
+    }
+    if (isCssSpace(ch)) { out += ch; i++; continue; }
+
+    const statement = readCssStatement(text, i, to);
+    if (!statement) {
+      // 结构看不懂（括号不配对等）：原样保留剩下的部分，绝不丢内容
+      out += text.slice(i, to);
+      break;
+    }
+
+    if (statement.kind === 'statement') {
+      out += text.slice(statement.start, statement.end);
+      i = statement.end;
+      continue;
+    }
+
+    const prelude = text.slice(statement.preludeStart, statement.preludeEnd).trim();
+    if (prelude.startsWith('@')) {
+      const name = atRuleName(prelude);
+      if (PRUNABLE_AT_RULES.has(name)) {
+        const inner = pruneCssRange(text, statement.blockStart + 1, statement.blockEnd, vocabulary, stats);
+        out += text.slice(statement.start, statement.blockStart + 1) + inner + '}';
+      } else {
+        out += text.slice(statement.start, statement.blockEnd + 1);
+      }
+    } else if (selectorListMayMatch(prelude, vocabulary)) {
+      out += text.slice(statement.start, statement.blockEnd + 1);
+    } else {
+      stats.removedRules++;
+    }
+    i = statement.blockEnd + 1;
+  }
+  return out;
+}
+
+function isCssSpace(ch) {
+  return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === '\f';
+}
+
+function atRuleName(prelude) {
+  const match = /^@([\w-]+)/.exec(prelude);
+  return match ? match[1].toLowerCase() : '';
+}
+
+/**
+ * 从 start 起读一条语句：到顶层 `;` 是语句（@import/@charset…），
+ * 到顶层 `{` 是块（规则或 @media 之类）。字符串、注释、括号里的字符不算边界。
+ */
+function readCssStatement(text, start, to) {
+  let i = start;
+  let quote = '';
+  let paren = 0;
+  let bracket = 0;
+  while (i < to) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === '\\') { i += 2; continue; }
+      if (ch === quote) quote = '';
+      i++;
+      continue;
+    }
+    if (ch === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2);
+      i = end < 0 ? to : end + 2;
+      continue;
+    }
+    if (ch === '"' || ch === "'") { quote = ch; i++; continue; }
+    if (ch === '\\') { i += 2; continue; }
+    if (ch === '(') { paren++; i++; continue; }
+    if (ch === ')') { paren = Math.max(0, paren - 1); i++; continue; }
+    if (ch === '[') { bracket++; i++; continue; }
+    if (ch === ']') { bracket = Math.max(0, bracket - 1); i++; continue; }
+    if (paren === 0 && bracket === 0) {
+      if (ch === ';') return { kind: 'statement', start: start, end: i + 1 };
+      if (ch === '{') {
+        const close = findClosingBrace(text, i, to);
+        if (close < 0) return null;
+        return { kind: 'block', start: start, preludeStart: start, preludeEnd: i, blockStart: i, blockEnd: close };
+      }
+    }
+    i++;
+  }
+  return null;
+}
+
+function findClosingBrace(text, open, to) {
+  let depth = 0;
+  let i = open;
+  let quote = '';
+  while (i < to) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === '\\') { i += 2; continue; }
+      if (ch === quote) quote = '';
+      i++;
+      continue;
+    }
+    if (ch === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2);
+      i = end < 0 ? to : end + 2;
+      continue;
+    }
+    if (ch === '"' || ch === "'") { quote = ch; i++; continue; }
+    if (ch === '\\') { i += 2; continue; }
+    if (ch === '{') { depth++; i++; continue; }
+    if (ch === '}') {
+      depth--;
+      if (depth === 0) return i;
+      i++;
+      continue;
+    }
+    i++;
+  }
+  return -1;
+}
+
+/** 选择器列表里只要有一条"可能匹配"，整条规则就保留 */
+function selectorListMayMatch(prelude, vocabulary) {
+  const selectors = splitCssList(prelude, ',');
+  if (selectors.length === 0) return true;
+  for (const selector of selectors) {
+    if (selectorVerdict(selector, vocabulary) !== 'absent') return true;
+  }
+  return false;
+}
+
+/** 按顶层分隔符切分（跳过字符串、括号、方括号里的分隔符） */
+function splitCssList(text, separator) {
+  const parts = [];
+  let start = 0;
+  let i = 0;
+  let quote = '';
+  let depth = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === '\\') { i += 2; continue; }
+      if (ch === quote) quote = '';
+      i++;
+      continue;
+    }
+    if (ch === '"' || ch === "'") { quote = ch; i++; continue; }
+    if (ch === '\\') { i += 2; continue; }
+    if (ch === '(' || ch === '[') { depth++; i++; continue; }
+    if (ch === ')' || ch === ']') { depth = Math.max(0, depth - 1); i++; continue; }
+    if (depth === 0 && ch === separator) {
+      parts.push(text.slice(start, i));
+      start = i + 1;
+    }
+    i++;
+  }
+  parts.push(text.slice(start));
+  return parts.map((part) => part.trim()).filter(Boolean);
+}
+
+/**
+ * 一条选择器的判定：
+ *   'absent' —— 必然匹配不到（某条要求文档里根本不存在）
+ *   'maybe'  —— 判断不了或可能匹配，保留
+ */
+function selectorVerdict(selector, vocabulary) {
+  const text = selector.trim();
+  if (!text) return 'maybe';
+  // 带参数的伪类（:is/:not/:nth-child/:has…）里可能还藏着选择器，不猜
+  if (/:[\w-]+\(/.test(text)) return 'maybe';
+
+  const compounds = splitCompounds(text);
+  if (!compounds) return 'maybe';
+  let absent = false;
+  for (const compound of compounds) {
+    const verdict = compoundVerdict(compound, vocabulary);
+    // 只要有一段看不懂，整条选择器就不下结论（结构可能被解析歪了）
+    if (verdict === 'unknown') return 'maybe';
+    if (verdict === 'absent') absent = true;
+  }
+  return absent ? 'absent' : 'maybe';
+}
+
+/** 按组合符（空格 / > / + / ~ / ||）切成复合选择器；切不动返回 null */
+function splitCompounds(selector) {
+  const parts = [];
+  let current = '';
+  let i = 0;
+  let depth = 0;
+  let quote = '';
+  while (i < selector.length) {
+    const ch = selector[i];
+    if (quote) {
+      if (ch === '\\') { current += ch + (selector[i + 1] || ''); i += 2; continue; }
+      current += ch;
+      if (ch === quote) quote = '';
+      i++;
+      continue;
+    }
+    if (ch === '"' || ch === "'") { quote = ch; current += ch; i++; continue; }
+    if (ch === '\\') {
+      // 十六进制转义（\3a ）后面那个空格属于转义，不是组合符
+      const escaped = readCssEscape(selector, i);
+      if (!escaped) return null;
+      current += selector.slice(i, escaped.end);
+      i = escaped.end;
+      continue;
+    }
+    if (ch === '(' || ch === '[') { depth++; current += ch; i++; continue; }
+    if (ch === ')' || ch === ']') { depth = Math.max(0, depth - 1); current += ch; i++; continue; }
+    if (depth === 0 && (ch === '>' || ch === '+' || ch === '~' || (ch === '|' && selector[i + 1] === '|'))) {
+      if (current.trim()) parts.push(current.trim());
+      current = '';
+      i += ch === '|' ? 2 : 1;
+      continue;
+    }
+    if (depth === 0 && isCssSpace(ch)) {
+      if (current.trim()) parts.push(current.trim());
+      current = '';
+      i++;
+      continue;
+    }
+    current += ch;
+    i++;
+  }
+  if (current.trim()) parts.push(current.trim());
+  return parts.length ? parts : null;
+}
+
+/** 单个复合选择器：'present' 要求都在 / 'absent' 缺东西 / 'unknown' 看不懂 */
+function compoundVerdict(compound, vocabulary) {
+  // 命名空间（svg|rect）、列组合、属性里的 | 操作符：不猜，保留
+  if (compound.includes('|')) return 'unknown';
+  let i = 0;
+  while (i < compound.length) {
+    const ch = compound[i];
+    if (ch === '*') { i++; continue; }
+    if (ch === '.') {
+      const ident = readCssIdent(compound, i + 1);
+      if (!ident.value) return 'unknown';
+      if (!vocabulary.classes.has(ident.value)) return 'absent';
+      i = ident.end;
+      continue;
+    }
+    if (ch === '#') {
+      const ident = readCssIdent(compound, i + 1);
+      if (!ident.value) return 'unknown';
+      if (!vocabulary.ids.has(ident.value)) return 'absent';
+      i = ident.end;
+      continue;
+    }
+    if (ch === '[') {
+      const close = findClosingBracket(compound, i);
+      if (close < 0) return 'unknown';
+      const name = readAttributeName(compound.slice(i + 1, close));
+      if (!name) return 'unknown';
+      if (!vocabulary.attrs.has(name.toLowerCase())) return 'absent';
+      i = close + 1;
+      continue;
+    }
+    if (ch === ':') {
+      // 不带参数的伪类/伪元素不改变"能不能匹配"，跳过即可
+      let j = i + 1;
+      if (compound[j] === ':') j++;
+      const ident = readCssIdent(compound, j);
+      if (!ident.value) return 'unknown';
+      i = ident.end;
+      continue;
+    }
+    if (/[A-Za-z_\u00A0-\uFFFF-]/.test(ch)) {
+      const ident = readCssIdent(compound, i);
+      if (!ident.value) return 'unknown';
+      if (!vocabulary.tags.has(ident.value.toLowerCase())) return 'absent';
+      i = ident.end;
+      continue;
+    }
+    // 命名空间、嵌套 &、以及没见过的写法：不判断
+    return 'unknown';
+  }
+  return 'present';
+}
+
+function findClosingBracket(text, open) {
+  let i = open + 1;
+  let quote = '';
+  while (i < text.length) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === '\\') { i += 2; continue; }
+      if (ch === quote) quote = '';
+      i++;
+      continue;
+    }
+    if (ch === '"' || ch === "'") { quote = ch; i++; continue; }
+    if (ch === '\\') { i += 2; continue; }
+    if (ch === ']') return i;
+    i++;
+  }
+  return -1;
+}
+
+/** `[data-x="a b" i]` → `data-x`；带命名空间/转义等看不懂的写法返回空串 */
+function readAttributeName(inner) {
+  const text = String(inner || '').trim();
+  const cut = text.search(/[=~|^$*]/);
+  const name = (cut < 0 ? text : text.slice(0, cut)).trim();
+  if (!name || /[\s\\"']/.test(name)) return '';
+  return name;
+}
+
+/** 读一个 CSS 标识符（处理 `\:` 这类转义；失败返回空串） */
+function readCssIdent(text, start) {
+  let i = start;
+  let value = '';
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === '\\') {
+      const escaped = readCssEscape(text, i);
+      if (!escaped) return { value: '', end: i };
+      value += escaped.value;
+      i = escaped.end;
+      continue;
+    }
+    if (/[A-Za-z0-9_\u00A0-\uFFFF-]/.test(ch)) { value += ch; i++; continue; }
+    break;
+  }
+  return { value: value, end: i };
+}
+
+function readCssEscape(text, start) {
+  let i = start + 1;
+  if (i >= text.length) return null;
+  let hex = '';
+  while (i < text.length && hex.length < 6 && /[0-9a-fA-F]/.test(text[i])) { hex += text[i]; i++; }
+  if (hex) {
+    if (text[i] === ' ') i++;
+    const code = parseInt(hex, 16);
+    if (!Number.isFinite(code) || code === 0 || code > 0x10ffff) return null;
+    try {
+      return { value: String.fromCodePoint(code), end: i };
+    } catch (e) {
+      return null;
+    }
+  }
+  const ch = text[i];
+  if (ch === '\n' || ch === '\r' || ch === '\f') return null;
+  return { value: ch, end: i + 1 };
+}
+
 /** CSS 字符串转义（只处理会破坏语法的字符） */
 export function escapeCssString(value) {
   return String(value == null ? '' : value)
@@ -450,6 +860,9 @@ export function normalizeArchiveOptions(input) {
     removeScripts: bool(raw.removeScripts, true),
     embedFrames: bool(raw.embedFrames, true),
     onlySelection: bool(raw.onlySelection, false),
+    // 体积优化：删掉不渲染的元素与不可能匹配的样式规则（SingleFile 的默认行为）
+    removeHidden: bool(raw.removeHidden, true),
+    removeUnusedCss: bool(raw.removeUnusedCss, true),
     limits: limits
   };
 }

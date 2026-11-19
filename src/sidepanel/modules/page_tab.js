@@ -56,6 +56,14 @@ export class PageTab {
             <span>嵌入 iframe 内容</span>
           </label>
           <label class="archive-toggle">
+            <input type="checkbox" id="archive-opt-hidden" />
+            <span>移除隐藏元素（省体积）</span>
+          </label>
+          <label class="archive-toggle">
+            <input type="checkbox" id="archive-opt-unused-css" />
+            <span>精简未使用的样式</span>
+          </label>
+          <label class="archive-toggle">
             <input type="checkbox" id="archive-opt-selection" />
             <span>只保存选中区域</span>
           </label>
@@ -92,6 +100,8 @@ export class PageTab {
     this.optScripts = this.container.querySelector('#archive-opt-scripts');
     this.optImages = this.container.querySelector('#archive-opt-images');
     this.optFrames = this.container.querySelector('#archive-opt-frames');
+    this.optHidden = this.container.querySelector('#archive-opt-hidden');
+    this.optUnusedCss = this.container.querySelector('#archive-opt-unused-css');
     this.optSelection = this.container.querySelector('#archive-opt-selection');
 
     this.button.addEventListener('click', () => this.run());
@@ -99,6 +109,8 @@ export class PageTab {
     this.optScripts.addEventListener('change', () => this.persistOption('archiveRemoveScripts', this.optScripts.checked));
     this.optImages.addEventListener('change', () => this.persistOption('archiveInlineImages', this.optImages.checked));
     this.optFrames.addEventListener('change', () => this.persistOption('archiveEmbedFrames', this.optFrames.checked));
+    this.optHidden.addEventListener('change', () => this.persistOption('archiveRemoveHidden', this.optHidden.checked));
+    this.optUnusedCss.addEventListener('change', () => this.persistOption('archiveRemoveUnusedCss', this.optUnusedCss.checked));
 
     this.loadSettings();
   }
@@ -115,6 +127,8 @@ export class PageTab {
     this.optScripts.checked = bool(this.settings.archiveRemoveScripts, true);
     this.optImages.checked = bool(this.settings.archiveInlineImages, true);
     this.optFrames.checked = bool(this.settings.archiveEmbedFrames, true);
+    this.optHidden.checked = bool(this.settings.archiveRemoveHidden, true);
+    this.optUnusedCss.checked = bool(this.settings.archiveRemoveUnusedCss, true);
     this.optSelection.checked = false; // 每次打开都从"整页"开始，避免误存半个页面
   }
 
@@ -206,6 +220,8 @@ export class PageTab {
       removeScripts: this.optScripts.checked,
       inlineImages: this.optImages.checked,
       embedFrames: this.optFrames.checked,
+      removeHidden: this.optHidden.checked,
+      removeUnusedCss: this.optUnusedCss.checked,
       onlySelection: this.optSelection.checked,
       limits: {
         maxResourceBytes: Math.max(1, Number(settings.archiveMaxResourceMB) || 4) * MB,
@@ -256,6 +272,8 @@ export class PageTab {
     ];
     if (stats.frames) summary.push('iframe ' + stats.frames);
     if (stats.scriptsRemoved) summary.push('移除脚本 ' + stats.scriptsRemoved);
+    if (stats.hiddenRemoved) summary.push('移除隐藏元素 ' + stats.hiddenRemoved);
+    if (stats.cssPrunedBytes) summary.push('样式省 ' + bus.formatBytes(stats.cssPrunedBytes));
     if (stats.skipped) summary.push('跳过 ' + stats.skipped);
     card.appendChild(el('div', { class: 'archive-result-meta', text: summary.filter(Boolean).join(' · ') }));
 

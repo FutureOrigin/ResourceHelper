@@ -30,8 +30,38 @@
    * 几毫秒，滚动与输入都不会被卡住（见 docs/ARCHIVE.md §4.6）。
    */
   const WALK_CHUNK = 2000;
+  /** 同步扫描（词表 / 隐藏元素 / 指纹）的分片大小 */
+  const SCAN_CHUNK = 2000;
+  /** 选择器词表上限：超过就放弃 CSS 精简（类名机器生成的页面，词表会失控） */
+  const VOCABULARY_LIMIT = 20000;
   /** 扩展自己的悬浮层（shadow host），归档前整棵摘掉 */
   const OVERLAY_CLASS = 'rh-inpage-overlay-root';
+
+  /**
+   * 这些标签的 display:none 是"结构性"的（UA 默认），删掉会毁掉文档本身：
+   * head 里的东西、表单的隐藏字段、模板、字幕轨，以及 SVG 里不参与渲染的容器
+   * （defs/symbol/渐变/裁剪路径……它们的子节点正是被引用的图形）。
+   */
+  const KEEP_HIDDEN = new Set([
+    'html', 'head', 'body', 'style', 'link', 'meta', 'title', 'base',
+    'script', 'noscript', 'template', 'datalist', 'param', 'source', 'track',
+    'option', 'optgroup', 'col', 'colgroup', 'area',
+    'defs', 'symbol', 'clippath', 'mask', 'pattern', 'lineargradient',
+    'radialgradient', 'filter', 'marker', 'metadata', 'desc', 'view', 'cursor',
+    'font', 'font-face'
+  ]);
+
+  /** 压缩 HTML 时不能碰其文本的元素（空白有意义） */
+  const PRESERVE_TEXT = new Set(['pre', 'textarea', 'style', 'script', 'xmp', 'plaintext', 'listing']);
+
+  /** 已知的块级标签：两侧都是块级（或边界）时，空白文本节点一定不显示 */
+  const BLOCK_TAGS = new Set([
+    'address', 'article', 'aside', 'blockquote', 'body', 'caption', 'colgroup',
+    'dd', 'details', 'dialog', 'div', 'dl', 'dt', 'fieldset', 'figcaption',
+    'figure', 'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header',
+    'hgroup', 'hr', 'html', 'li', 'main', 'nav', 'ol', 'p', 'pre', 'section',
+    'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'tr', 'ul'
+  ]);
 
   /** 懒加载兜底：只有当主地址是 data:/空 时才看这些属性 */
   const LAZY_IMAGE_ATTRS = ['data-src', 'data-original', 'data-lazy-src', 'data-actualsrc', 'data-echo'];
@@ -117,6 +147,7 @@
       removeScripts: rawOptions.removeScripts !== false,
       embedFrames: rawOptions.embedFrames !== false,
       onlySelection: rawOptions.onlySelection === true,
+      removeHidden: rawOptions.removeHidden !== false,
       maxFrames: Number.isFinite(Number(rawOptions.maxFrames)) ? Number(rawOptions.maxFrames) : 20
     };
 
@@ -140,10 +171,11 @@
       stats: { images: 0, assets: 0, styles: 0, frames: 0, scripts: 0, skipped: 0, nodes: 0, canvas: 0 }
     };
 
-    const snapshot = buildSnapshot(options);
+    const snapshot = await buildSnapshot(options);
     if (!snapshot.ok) return snapshot;
 
     state.stats.nodes = snapshot.nodes;
+    state.stats.hiddenRemoved = snapshot.hiddenRemoved || 0;
     const walked = await walk(snapshot, state);
     // 活树与克隆树的图片数量必须一致：不一致说明配对不可靠，宁可让用户重试，
     // 也不能把 A 图的字节塞进 B 图的 src
@@ -154,6 +186,8 @@
         message: '页面在保存过程中发生了变化（图片数量不一致），请重试'
       };
     }
+
+    compressTree(snapshot.root);
 
     return {
       success: true,
@@ -166,6 +200,7 @@
       resources: state.resources,
       frames: state.frames,
       stats: state.stats,
+      vocabulary: snapshot.vocabulary || null,
       frameId: Number.isFinite(sender && sender.frameId) ? sender.frameId : 0
     };
   }
@@ -173,14 +208,12 @@
   /**
    * 建一份可以安全改写的克隆，并确认克隆期间页面没有变。
    *
-   * 老实现把活节点与克隆节点各物化成几万项的数组再逐项比对：光是引用数组就要几 MB，
-   * 逐项比较本身也是一次长任务。现在只算两次"元素树指纹"（文档序的 localName 序列
-   * + 节点数），图片的 currentSrc 单独按文档序收集 —— 这也是不再需要节点数上限的前提。
-   *
-   * 指纹只看元素名与顺序，不看文字/属性：页面上的时钟、计数器在采集期间更新不该让
-   * 保存失败；只要元素结构一致，占位符与图片的配对就是可靠的。
+   * 一次同步遍历同时做四件事：算"元素树指纹"（文档序 localName 的 64 位哈希 +
+   * 节点数）、收集选择器词表、记下每张图真正显示的地址、把不该进归档的节点从克隆里摘掉
+   * （扩展自己的悬浮层、display:none 的元素）。这样活树只读、克隆树只删，
+   * 两边结构始终可比对；也让"删隐藏元素"不会破坏图片配对。
    */
-  function buildSnapshot(options) {
+  async function buildSnapshot(options) {
     if (options.onlySelection) {
       const selection = window.getSelection && window.getSelection();
       if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
@@ -189,17 +222,94 @@
         root.setAttribute('data-rh-selection', '');
         root.appendChild(fragment);
         for (const host of root.querySelectorAll('.' + OVERLAY_CLASS)) host.remove();
-        return { ok: true, root: root, liveImages: null, nodes: fingerprint(root).count };
+        return {
+          ok: true,
+          root: root,
+          liveImages: null,
+          nodes: countElements(root),
+          vocabulary: vocabularyOf(root),
+          hiddenRemoved: 0
+        };
       }
       // 没有选中内容时退回整页：用户点的是"保存整页"，不该因为没选中而失败
     }
 
-    const live = fingerprint(document.documentElement);
-    const cloneRoot = document.documentElement.cloneNode(true);
-    const clone = fingerprint(cloneRoot);
+    const liveRoot = document.documentElement;
+    const cloneRoot = liveRoot.cloneNode(true);
+    const scan = await scanTrees(liveRoot, cloneRoot, options);
+    if (!scan.ok) return scan;
+    return {
+      ok: true,
+      root: cloneRoot,
+      liveImages: scan.images,
+      nodes: scan.count,
+      vocabulary: scan.vocabulary,
+      hiddenRemoved: scan.hiddenRemoved
+    };
+  }
 
+  /**
+   * 同步遍历活树与克隆树（结构相同才能同步推进），顺带摘掉悬浮层与隐藏元素。
+   *
+   * 隐藏判定用活节点的 computedStyle：克隆节点不在渲染树里，读不到 display。
+   * 只删 display:none —— 它不占布局位置，删掉不会让页面错位；visibility:hidden
+   * 还占位，删了会改变排版，不做。
+   */
+  async function scanTrees(liveRoot, cloneRoot, options) {
+    const checkHidden = options.removeHidden !== false;
+    const live = { count: 0, a: 0x811c9dc5 | 0, b: 0x7f4a7c15 | 0 };
+    const clone = { count: 0, a: 0x811c9dc5 | 0, b: 0x7f4a7c15 | 0 };
+    const images = [];
+    const vocabulary = { tags: new Set(), classes: new Set(), ids: new Set(), attrs: new Set() };
+    let hiddenRemoved = 0;
+    let budget = SCAN_CHUNK;
+    let l = liveRoot;
+    let c = cloneRoot;
+
+    while (l && c) {
+      const name = l.localName || '';
+      const overlay = isOverlay(l);
+      const hidden = !overlay && checkHidden && isHidden(l, name);
+      if (overlay || hidden) {
+        const nextLive = nextAfterSubtree(l, liveRoot);
+        const nextClone = nextAfterSubtree(c, cloneRoot);
+        c.remove();
+        if (hidden) hiddenRemoved++;
+        l = nextLive;
+        c = nextClone;
+        if (--budget <= 0) { budget = SCAN_CHUNK; await yieldToPage(); }
+        continue;
+      }
+
+      mixFingerprint(live, name);
+      mixFingerprint(clone, c.localName || '');
+      live.count++;
+      clone.count++;
+      addVocabulary(vocabulary, l);
+      if (isImageNode(l)) images.push(typeof l.currentSrc === 'string' ? l.currentSrc : '');
+
+      const child = l.firstElementChild;
+      if (child) {
+        l = child;
+        c = c.firstElementChild;
+      } else {
+        l = nextAfterSubtree(l, liveRoot);
+        c = nextAfterSubtree(c, cloneRoot);
+      }
+      if (--budget <= 0) { budget = SCAN_CHUNK; await yieldToPage(); }
+    }
+
+    if (l || c) {
+      return {
+        ok: false,
+        success: false,
+        error: 'MUTATING',
+        message: '页面在保存过程中发生了变化（结构不一致），请重试'
+      };
+    }
     if (live.count !== clone.count) {
       return {
+        ok: false,
         success: false,
         error: 'MUTATING',
         message: '页面在保存过程中发生了变化（节点数 ' + live.count + ' → ' + clone.count + '），请重试'
@@ -207,20 +317,20 @@
     }
     if (live.a !== clone.a || live.b !== clone.b) {
       return {
+        ok: false,
         success: false,
         error: 'MUTATING',
         message: '页面在保存过程中发生了变化（结构不一致），请重试'
       };
     }
 
-    // 悬浮层是扩展自己的 UI，不该进归档。影子树不会被 cloneNode 复制，light DOM 里
-    // 也没有子节点，所以整棵摘掉不会让后面的图片配对错位。
-    const overlays = document.querySelectorAll('.' + OVERLAY_CLASS);
-    if (overlays.length > 0) {
-      for (const host of cloneRoot.querySelectorAll('.' + OVERLAY_CLASS)) host.remove();
-    }
-
-    return { ok: true, root: cloneRoot, liveImages: collectLiveImages(overlays), nodes: clone.count };
+    return {
+      ok: true,
+      count: live.count,
+      images: images,
+      vocabulary: vocabularyToArrays(vocabulary),
+      hiddenRemoved: hiddenRemoved
+    };
   }
 
   /**
@@ -229,24 +339,15 @@
    * 用哈希而不是保存节点引用：几万项的数组本身就要几 MB，逐项比较还是纯 JS 长任务。
    * 两个独立初值一起用等效 64 位，这个规模下可以当零碰撞。
    */
-  function fingerprint(root) {
-    const result = { count: 0, a: 0x811c9dc5 | 0, b: 0x7f4a7c15 | 0 };
-    let node = root;
-    while (node) {
-      const name = node.localName || '';
-      result.count++;
-      // 先混入长度，避免 "ab"+"c" 与 "a"+"bc" 被当成同一串
-      result.a = Math.imul(result.a ^ name.length, 16777619) | 0;
-      result.b = Math.imul(result.b ^ name.length, 2654435761) | 0;
-      for (let i = 0; i < name.length; i++) {
-        const code = name.charCodeAt(i);
-        result.a = Math.imul(result.a ^ code, 16777619) | 0;
-        result.b = Math.imul(result.b ^ code, 2654435761) | 0;
-      }
-      const child = node.firstElementChild;
-      node = child || nextAfterSubtree(node, root);
+  function mixFingerprint(target, name) {
+    // 先混入长度，避免 "ab"+"c" 与 "a"+"bc" 被当成同一串
+    target.a = Math.imul(target.a ^ name.length, 16777619) | 0;
+    target.b = Math.imul(target.b ^ name.length, 2654435761) | 0;
+    for (let i = 0; i < name.length; i++) {
+      const code = name.charCodeAt(i);
+      target.a = Math.imul(target.a ^ code, 16777619) | 0;
+      target.b = Math.imul(target.b ^ code, 2654435761) | 0;
     }
-    return result;
   }
 
   /** 文档序里"跳过整棵子树之后"的下一个元素；走到 root 返回 null */
@@ -260,26 +361,78 @@
   }
 
   /**
-   * 记下每张图"浏览器实际显示的那张"（currentSrc）。
+   * 选择器词表：文档里出现过的标签 / 类 / id / 属性。
    *
-   * 克隆节点不会加载图片，currentSrc 是空的，所以只能在活树上取；顺序必须与克隆树
-   * 的文档序一致 —— 两边结构已经比对过，这里用同一判定（isImageNode）收集。
+   * 侧边栏用它删掉"不可能匹配"的 CSS 规则。只收集、不判断；词表太大（类名是
+   * 机器生成的页面）就返回 null —— 宁可不少删，也不能因为漏记而删错规则。
    */
-  function collectLiveImages(overlays) {
-    const list = [];
-    const nodes = document.querySelectorAll('img, input[type="image" i]');
-    for (const node of nodes) {
-      if (overlays && overlays.length > 0 && insideAny(node, overlays)) continue;
-      list.push(typeof node.currentSrc === 'string' ? node.currentSrc : '');
+  function addVocabulary(vocabulary, node) {
+    const name = node.localName;
+    if (name) vocabulary.tags.add(name);
+
+    const className = node.getAttribute('class');
+    if (className) {
+      for (const token of className.split(/\s+/)) {
+        if (token) vocabulary.classes.add(token);
+      }
     }
-    return list;
+    const id = node.getAttribute('id');
+    if (id) vocabulary.ids.add(id);
+
+    const attributes = node.attributes;
+    if (!attributes) return;
+    for (let i = 0; i < attributes.length; i++) {
+      const attrName = attributes[i].name;
+      if (attrName) vocabulary.attrs.add(attrName.toLowerCase());
+    }
   }
 
-  function insideAny(node, hosts) {
-    for (const host of hosts) {
-      if (host.contains(node)) return true;
+  function vocabularyOf(root) {
+    const vocabulary = { tags: new Set(), classes: new Set(), ids: new Set(), attrs: new Set() };
+    addVocabulary(vocabulary, root);
+    for (const node of root.querySelectorAll('*')) addVocabulary(vocabulary, node);
+    return vocabularyToArrays(vocabulary);
+  }
+
+  function vocabularyToArrays(vocabulary) {
+    const total = vocabulary.tags.size + vocabulary.classes.size + vocabulary.ids.size + vocabulary.attrs.size;
+    if (total > VOCABULARY_LIMIT) return null;
+    return {
+      tags: Array.from(vocabulary.tags),
+      classes: Array.from(vocabulary.classes),
+      ids: Array.from(vocabulary.ids),
+      attrs: Array.from(vocabulary.attrs)
+    };
+  }
+
+  /** 扩展自己的悬浮层（shadow host） */
+  function isOverlay(node) {
+    return Boolean(node.classList && node.classList.contains(OVERLAY_CLASS));
+  }
+
+  /**
+   * 这个元素是不是"不渲染"（display:none）。
+   *
+   * 结构性标签（head/style/link/meta/script/template…）的 display:none 来自 UA 样式，
+   * 删掉会毁掉文档本身，必须先排除；只处理 body 里的元素。
+   */
+  function isHidden(node, name) {
+    if (!name || KEEP_HIDDEN.has(name.toLowerCase())) return false;
+    if (!document.body || !document.body.contains(node)) return false;
+    if (typeof window.getComputedStyle !== 'function') return false;
+    const style = window.getComputedStyle(node);
+    return Boolean(style) && style.display === 'none';
+  }
+
+  function countElements(root) {
+    let count = 0;
+    let node = root;
+    while (node) {
+      count++;
+      const child = node.firstElementChild;
+      node = child || nextAfterSubtree(node, root);
     }
-    return false;
+    return count;
   }
 
   /** 与 handleElement 里的 img/input 分支同一判定 */
@@ -327,6 +480,58 @@
     }
 
     return { images: cursor };
+  }
+
+  /**
+   * 压缩整棵克隆树：删注释、删"一定不显示"的空白文本节点。
+   *
+   * 只处理**纯空白**的文本节点，且要求两侧都是已知块级标签（或边界）—— 文本
+   * 内容一个字都不动，所以不会把 "Hello <b>world</b>" 粘成一个词。
+   * 未知标签按内联处理（保守保留空格），pre/textarea/style 整棵子树跳过。
+   */
+  function compressTree(root) {
+    let node = root;
+    while (node) {
+      const tag = node.localName;
+      if (tag && PRESERVE_TEXT.has(tag)) {
+        node = nextAfterSubtree(node, root);
+        continue;
+      }
+      compressChildren(node);
+      const child = node.firstElementChild;
+      node = child || nextAfterSubtree(node, root);
+    }
+  }
+
+  function compressChildren(node) {
+    let child = node.firstChild;
+    while (child) {
+      const next = child.nextSibling;
+      if (child.nodeType === 8) {
+        node.removeChild(child);
+      } else if (child.nodeType === 3 && /^\s+$/.test(child.nodeValue || '')) {
+        if (insignificantSpace(child)) node.removeChild(child);
+        else if (child.nodeValue !== ' ') child.nodeValue = ' ';
+      }
+      child = next;
+    }
+  }
+
+  /** 纯空白文本节点两侧都不是内联内容时，它渲染不出任何东西 */
+  function insignificantSpace(node) {
+    const prev = node.previousSibling;
+    const next = node.nextSibling;
+    if (!prev && !next) return false; // 元素里只有空白：内联上下文里可能是有意义的
+    if (prev && !isBlockLike(prev)) return false;
+    if (next && !isBlockLike(next)) return false;
+    return true;
+  }
+
+  function isBlockLike(node) {
+    // 文本节点相邻的空白一定有意义；未知标签按内联处理（保守）
+    if (node.nodeType !== 1) return false;
+    const tag = node.localName;
+    return Boolean(tag) && BLOCK_TAGS.has(tag);
   }
 
   /**

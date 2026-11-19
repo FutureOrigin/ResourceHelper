@@ -28,6 +28,10 @@ export const DEFAULT_SETTINGS = {
   archiveInlineImages: true,
   // 把 iframe 的内容也塞进 srcdoc
   archiveEmbedFrames: true,
+  // 体积优化：删掉不渲染（display:none）的元素
+  archiveRemoveHidden: true,
+  // 体积优化：删掉当前文档里根本匹配不到的 CSS 规则
+  archiveRemoveUnusedCss: true,
   // 防盗链场景：抓取失败后是否允许"临时带上页面 Referer 再试一次"
   archiveRefererRetry: true,
   // 单个资源上限（MiB）
@@ -43,6 +47,8 @@ const BOOLEAN_KEYS = [
   'archiveRemoveScripts',
   'archiveInlineImages',
   'archiveEmbedFrames',
+  'archiveRemoveHidden',
+  'archiveRemoveUnusedCss',
   'archiveRefererRetry'
 ];
 

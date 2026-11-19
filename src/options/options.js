@@ -15,6 +15,8 @@ const FIELDS = {
   archiveRemoveScripts: () => document.getElementById('archive-remove-scripts'),
   archiveInlineImages: () => document.getElementById('archive-inline-images'),
   archiveEmbedFrames: () => document.getElementById('archive-embed-frames'),
+  archiveRemoveHidden: () => document.getElementById('archive-remove-hidden'),
+  archiveRemoveUnusedCss: () => document.getElementById('archive-remove-unused-css'),
   archiveRefererRetry: () => document.getElementById('archive-referer-retry'),
   archiveMaxResourceMB: () => document.getElementById('archive-max-resource-mb'),
   archiveMaxTotalMB: () => document.getElementById('archive-max-total-mb')
@@ -43,6 +45,8 @@ function applyToForm(settings) {
   FIELDS.archiveRemoveScripts().checked = Boolean(settings.archiveRemoveScripts);
   FIELDS.archiveInlineImages().checked = Boolean(settings.archiveInlineImages);
   FIELDS.archiveEmbedFrames().checked = Boolean(settings.archiveEmbedFrames);
+  FIELDS.archiveRemoveHidden().checked = Boolean(settings.archiveRemoveHidden);
+  FIELDS.archiveRemoveUnusedCss().checked = Boolean(settings.archiveRemoveUnusedCss);
   FIELDS.archiveRefererRetry().checked = Boolean(settings.archiveRefererRetry);
   FIELDS.archiveMaxResourceMB().value = String(settings.archiveMaxResourceMB);
   FIELDS.archiveMaxTotalMB().value = String(settings.archiveMaxTotalMB);
@@ -58,6 +62,8 @@ function collectFromForm() {
     archiveRemoveScripts: FIELDS.archiveRemoveScripts().checked,
     archiveInlineImages: FIELDS.archiveInlineImages().checked,
     archiveEmbedFrames: FIELDS.archiveEmbedFrames().checked,
+    archiveRemoveHidden: FIELDS.archiveRemoveHidden().checked,
+    archiveRemoveUnusedCss: FIELDS.archiveRemoveUnusedCss().checked,
     archiveRefererRetry: FIELDS.archiveRefererRetry().checked,
     archiveMaxResourceMB: FIELDS.archiveMaxResourceMB().value,
     archiveMaxTotalMB: FIELDS.archiveMaxTotalMB().value

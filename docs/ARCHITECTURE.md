@@ -71,14 +71,14 @@ sidepanel/modules/font_text_decode.js
 
 ~~~
 content/page_archiver.js（每个 frame 各一份）
-  documentElement.cloneNode(true) → 两次元素树指纹比对（结构变了就报错重试）
-  图片的 currentSrc 按文档序单独收集；每 2000 个节点让出一次主线程
+  documentElement.cloneNode(true) → 活树/克隆树同步遍历：结构指纹 + 选择器词表 +
+  图片 currentSrc；顺手摘掉悬浮层与 display:none 的元素（分片让出主线程）
   要内联的地址 → rhres://<token>/<n>；iframe → rhframe://<token>/<n>
         │ { html, resources[], frames[], stats }
         ▼
 sidepanel/modules/page_archive.js（编排，I/O 全部注入 → 可单测）
   ① 逐 frame 采集（先注入再重试）    ② 帧树配对（src ↔ frame.url，配不上就还原）
-  ③ CSS 闭包：url() → data URI；@import → 递归展开，失败保底绝对地址
+  ③ CSS 闭包：先按本帧词表删掉匹配不到的规则 → url() 内联；@import 递归展开，失败保底绝对地址
   ④ 二进制批量抓取（去重、预算）     ⑤ 从深到浅装配 srcdoc → 替换占位符
         │
         ├─▶ core/page-archive.js   占位符/URL/CSS/转义/装配/文件名（纯函数）

@@ -82,6 +82,22 @@
       </label>
 
       <label class="row">
+        <input type="checkbox" id="archive-remove-hidden" />
+        <span class="row-main">
+          <span class="row-title">移除隐藏元素（省体积）</span>
+          <span class="row-desc">删掉 display:none 的元素：它们不占布局，但常常带着大图和弹窗内容。代价是"悬停才显示"的菜单、按窗口宽度切换的备用内容不会出现在快照里。</span>
+        </span>
+      </label>
+
+      <label class="row">
+        <input type="checkbox" id="archive-remove-unused-css" />
+        <span class="row-main">
+          <span class="row-title">精简未使用的样式</span>
+          <span class="row-desc">删掉当前页面根本匹配不到的 CSS 规则（框架样式表通常九成用不上），连带不再抓这些规则里的背景图与字体。只做"必然匹配不到"的判断，判断不了就保留。</span>
+        </span>
+      </label>
+
+      <label class="row">
         <input type="checkbox" id="archive-referer-retry" />
         <span class="row-main">
           <span class="row-title">防盗链时带页面 Referer 重试</span>

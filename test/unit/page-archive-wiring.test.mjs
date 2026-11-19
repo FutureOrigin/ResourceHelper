@@ -72,6 +72,25 @@ test('大页面不再按节点数拒绝，遍历分片让出主线程', () => {
   assert.match(archiver, /\.then\(/, '采集结果必须异步回包');
 });
 
+test('体积优化的接线：隐藏元素、选择器词表、CSS 精简', () => {
+  // 采集端：按设置剔除 display:none，并把选择器词表带回侧边栏
+  assert.match(archiver, /removeHidden: rawOptions\.removeHidden !== false/, '内容脚本未接收"移除隐藏元素"开关');
+  assert.match(archiver, /vocabulary: snapshot\.vocabulary/, '采集结果没有带回选择器词表');
+  assert.match(archiver, /getComputedStyle/, '隐藏判定必须用活节点的计算样式');
+
+  // 编排端：按帧词表精简 CSS，并把开关传下去
+  assert.match(orchestrator, /normalizeSelectorVocabulary/, '侧边栏没有使用选择器词表');
+  assert.match(orchestrator, /pruneUnusedCss\(/, '侧边栏没有调用 CSS 精简');
+  assert.match(orchestrator, /removeHidden: options\.removeHidden/, '开关没有传给内容脚本');
+
+  // 设置项：默认开，且两侧 UI 都能改
+  assert.equal(DEFAULT_SETTINGS.archiveRemoveHidden, true);
+  assert.equal(DEFAULT_SETTINGS.archiveRemoveUnusedCss, true);
+  const panel = read('sidepanel/modules/page_tab.js');
+  assert.ok(panel.includes('archive-opt-hidden'), '快照面板缺少"移除隐藏元素"开关');
+  assert.ok(panel.includes('archive-opt-unused-css'), '快照面板缺少"精简未使用的样式"开关');
+});
+
 test('后台提供批量抓取与 frame 枚举接口', () => {
   for (const type of ['RH_ARCHIVE_FETCH', 'RH_ARCHIVE_FRAMES']) {
     assert.ok(background.includes("'" + type + "'"), '后台缺少消息处理：' + type);
@@ -112,6 +131,8 @@ test('设置项进了数据形状，也进了设置页', () => {
     'archiveRemoveScripts',
     'archiveInlineImages',
     'archiveEmbedFrames',
+    'archiveRemoveHidden',
+    'archiveRemoveUnusedCss',
     'archiveRefererRetry',
     'archiveMaxResourceMB',
     'archiveMaxTotalMB'
@@ -127,6 +148,8 @@ test('设置项进了数据形状，也进了设置页', () => {
     archiveRemoveScripts: 'archive-remove-scripts',
     archiveInlineImages: 'archive-inline-images',
     archiveEmbedFrames: 'archive-embed-frames',
+    archiveRemoveHidden: 'archive-remove-hidden',
+    archiveRemoveUnusedCss: 'archive-remove-unused-css',
     archiveRefererRetry: 'archive-referer-retry',
     archiveMaxResourceMB: 'archive-max-resource-mb',
     archiveMaxTotalMB: 'archive-max-total-mb'

@@ -27,6 +27,8 @@ import {
   escapeStyleText,
   normalizeArchiveOptions,
   normalizeResourceUrl,
+  normalizeSelectorVocabulary,
+  pruneUnusedCss,
   replacePlaceholders,
   scanCssReferences
 } from '../../core/page-archive.js';
@@ -208,6 +210,9 @@ export async function archivePage(input) {
     skipped: 0,
     frames: 0,
     scriptsRemoved: 0,
+    hiddenRemoved: 0,
+    cssPrunedBytes: 0,
+    cssPrunedRules: 0,
     canvas: 0,
     bytesUsed: 0,
     binaryCount: 0,
@@ -233,6 +238,7 @@ export async function archivePage(input) {
         removeScripts: options.removeScripts,
         embedFrames: options.embedFrames,
         onlySelection: options.onlySelection,
+        removeHidden: options.removeHidden,
         maxFrames: limits.maxFrames
       }
     };
@@ -285,6 +291,17 @@ export async function archivePage(input) {
       if (!frame.stats) continue;
       if (Number.isFinite(frame.stats.scripts)) stats.scriptsRemoved += frame.stats.scripts;
       if (Number.isFinite(frame.stats.canvas)) stats.canvas = (stats.canvas || 0) + frame.stats.canvas;
+      if (Number.isFinite(frame.stats.hiddenRemoved)) stats.hiddenRemoved += frame.stats.hiddenRemoved;
+    }
+
+    // 每个 frame 的选择器词表：CSS 精简按帧判断（同一个样式表在不同 frame 里
+    // 能匹配到的规则可能不同，必须各删各的）
+    const vocabularies = new Map();
+    if (options.removeUnusedCss) {
+      for (const frame of collected) {
+        const vocabulary = normalizeSelectorVocabulary(frame.vocabulary);
+        if (vocabulary) vocabularies.set(frame.frameId, vocabulary);
+      }
     }
 
     /* ---------------- 3. 样式闭包 ---------------- */
@@ -306,7 +323,15 @@ export async function archivePage(input) {
     }
     stats.resources = allResources.length;
 
-    const cache = createResourceCache({ deps: deps, pageUrl: pageUrl, options: options, limits: limits, stats: stats, skip: skip });
+    const cache = createResourceCache({
+      deps: deps,
+      pageUrl: pageUrl,
+      options: options,
+      limits: limits,
+      stats: stats,
+      skip: skip,
+      vocabularies: vocabularies
+    });
     const cssValues = new Map(); // `${frameId}:${index}` -> 最终 CSS 文本
 
     const cssResources = allResources.filter((resource) => resource.kind === 'css-link' || resource.kind === 'css-text');
@@ -317,13 +342,13 @@ export async function archivePage(input) {
         report('css', '正在内联样式表…', i, cssResources.length);
         let cssText = '';
         if (resource.kind === 'css-text') {
-          cssText = await cache.processCss(resource.text, resource.base, 0);
+          cssText = await cache.processCss(resource.text, resource.base, 0, resource.frameId);
         } else {
           const loaded = await cache.loadCss(resource.url);
           if (!loaded.ok) {
             skip(resource.url, loaded.error || 'FETCH_FAILED');
           } else {
-            cssText = await cache.processCss(loaded.text, loaded.url || resource.url, 0);
+            cssText = await cache.processCss(loaded.text, loaded.url || resource.url, 0, resource.frameId);
           }
         }
         stats.styles++;
@@ -483,6 +508,8 @@ function createResourceCache(input) {
   const limits = opts.limits || {};
   const stats = opts.stats;
   const skip = opts.skip || (() => {});
+  /** frameId -> 选择器词表；没有词表的 frame 不做 CSS 精简 */
+  const vocabularies = opts.vocabularies instanceof Map ? opts.vocabularies : new Map();
 
   /** url -> { ok, value, bytes, error } —— value 是 data URI 或原始绝对地址 */
   const binary = new Map();
@@ -616,10 +643,22 @@ function createResourceCache(input) {
   }
 
   /** 把一个 CSS 文本里的引用全部就地解决（url() 内联，@import 展开） */
-  async function processCss(text, baseUrl, depth) {
+  async function processCss(text, baseUrl, depth, frameId) {
     const source = typeof text === 'string' ? text : '';
-    const references = scanCssReferences(source);
-    if (references.length === 0) return source;
+    // 先精简再扫引用：被删掉的规则里即使有 url()/字体，也不该再抓回来内联
+    let cssText = source;
+    const vocabulary = vocabularies.get(frameId) || null;
+    if (vocabulary) {
+      const pruned = pruneUnusedCss(source, vocabulary);
+      if (pruned.removedBytes > 0) {
+        stats.cssPrunedBytes += pruned.removedBytes;
+        stats.cssPrunedRules += pruned.removedRules;
+      }
+      cssText = pruned.css;
+    }
+
+    const references = scanCssReferences(cssText);
+    if (references.length === 0) return cssText;
 
     const replacements = new Map();
 
@@ -655,11 +694,11 @@ function createResourceCache(input) {
         replacements.set(ref, cssImportRef(normalized.url, ref.media));
         continue;
       }
-      const nested = await processCss(loaded.text, loaded.url || normalized.url, depth + 1);
+      const nested = await processCss(loaded.text, loaded.url || normalized.url, depth + 1, frameId);
       replacements.set(ref, ref.media ? '@media ' + ref.media + ' {\n' + nested + '\n}' : nested);
     }
 
-    return applyCssReferences(source, references, (ref) => {
+    return applyCssReferences(cssText, references, (ref) => {
       return replacements.has(ref) ? replacements.get(ref) : null;
     }).css;
   }
